@@ -1,0 +1,43 @@
+{
+  "model": "gine",
+  "dataset": "b3db",
+  "seed": 2,
+  "n_parameters": 123836,
+  "best_epoch": 14,
+  "epochs_run": 44,
+  "train_seconds": 135.6,
+  "val": {
+    "roc_auc": 0.9311886738627091,
+    "pr_auc": 0.9351957264416395,
+    "accuracy": 0.8589743589743589,
+    "balanced_accuracy": 0.8599027406439286,
+    "f1": 0.868421052631579,
+    "mcc": 0.7174106687418278,
+    "threshold": 0.4690711796283722,
+    "confusion_matrix": {
+      "tn": 307,
+      "fp": 46,
+      "fn": 64,
+      "tp": 363
+    },
+    "n": 780,
+    "n_positive": 427
+  },
+  "test": {
+    "roc_auc": 0.8867300358257252,
+    "pr_auc": 0.9340219058476271,
+    "accuracy": 0.8066581306017926,
+    "balanced_accuracy": 0.7823406621980815,
+    "f1": 0.8532555879494655,
+    "mcc": 0.5703281953122843,
+    "threshold": 0.4690711796283722,
+    "confusion_matrix": {
+      "tn": 191,
+      "fp": 81,
+      "fn": 70,
+      "tp": 439
+    },
+    "n": 781,
+    "n_positive": 509
+  }
+}

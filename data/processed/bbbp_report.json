@@ -1,0 +1,11 @@
+{
+  "dataset": "bbbp",
+  "rows_in": 2050,
+  "missing_dropped": 0,
+  "invalid_smiles_dropped": 11,
+  "duplicates_merged": 54,
+  "label_conflicts_dropped": 20,
+  "rows_out": 1965,
+  "positives": 1500,
+  "negatives": 465
+}

@@ -1,0 +1,43 @@
+{
+  "model": "gin",
+  "dataset": "b3db",
+  "seed": 1,
+  "n_parameters": 121476,
+  "best_epoch": 40,
+  "epochs_run": 70,
+  "train_seconds": 47.8,
+  "val": {
+    "roc_auc": 0.9356590743614447,
+    "pr_auc": 0.9645778322676783,
+    "accuracy": 0.8705128205128205,
+    "balanced_accuracy": 0.8677622434195527,
+    "f1": 0.8997020854021847,
+    "mcc": 0.7194874824202695,
+    "threshold": 0.6561926603317261,
+    "confusion_matrix": {
+      "tn": 226,
+      "fp": 37,
+      "fn": 64,
+      "tp": 453
+    },
+    "n": 780,
+    "n_positive": 517
+  },
+  "test": {
+    "roc_auc": 0.885028761731759,
+    "pr_auc": 0.9014605691802466,
+    "accuracy": 0.7989756722151088,
+    "balanced_accuracy": 0.804354407718938,
+    "f1": 0.7903871829105474,
+    "mcc": 0.6138368564994104,
+    "threshold": 0.6561926603317261,
+    "confusion_matrix": {
+      "tn": 328,
+      "fp": 39,
+      "fn": 118,
+      "tp": 296
+    },
+    "n": 781,
+    "n_positive": 414
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "model": "dmpnn",
+  "dataset": "bbbp",
+  "seed": 1,
+  "n_parameters": 77825,
+  "best_epoch": 38,
+  "epochs_run": 68,
+  "train_seconds": 58.7,
+  "val": {
+    "roc_auc": 0.9297277409860191,
+    "pr_auc": 0.9775048718704914,
+    "accuracy": 0.8673469387755102,
+    "balanced_accuracy": 0.8983075791022811,
+    "f1": 0.9071428571428571,
+    "mcc": 0.7063355095567382,
+    "threshold": 0.8550805449485779,
+    "confusion_matrix": {
+      "tn": 43,
+      "fp": 2,
+      "fn": 24,
+      "tp": 127
+    },
+    "n": 196,
+    "n_positive": 151
+  },
+  "test": {
+    "roc_auc": 0.934468085106383,
+    "pr_auc": 0.9773125627027857,
+    "accuracy": 0.8527918781725888,
+    "balanced_accuracy": 0.8521985815602837,
+    "f1": 0.8982456140350877,
+    "mcc": 0.6464715657408593,
+    "threshold": 0.8550805449485779,
+    "confusion_matrix": {
+      "tn": 40,
+      "fp": 7,
+      "fn": 22,
+      "tp": 128
+    },
+    "n": 197,
+    "n_positive": 150
+  }
+}

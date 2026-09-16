@@ -1,0 +1,17 @@
+[adenot] external holdout vs. training pool ['bbbp', 'b3db']
+  rows in                          : 1650
+  invalid SMILES                   : -1
+  direct canonical-SMILES overlap  : 1559
+  scaffold groups tainted           : 810 (+31 extra molecules pulled in with their group)
+  rows out (leak-free)              : 59 (15 pos / 44 neg)
+  total dropped                     : 96.4%
+
+[wang] external holdout vs. training pool ['bbbp', 'b3db']
+  rows in                          : 1592
+  invalid SMILES                   : -5
+  direct canonical-SMILES overlap  : 1469
+  scaffold groups tainted           : 761 (+63 extra molecules pulled in with their group)
+  rows out (leak-free)              : 55 (38 pos / 17 neg)
+  total dropped                     : 96.5%
+
+wrote clean holdout sets + leak_report.json to /home/claude/work/deliverables_run/data/external_holdout

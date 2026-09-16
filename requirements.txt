@@ -1,0 +1,10 @@
+torch>=2.2
+torch-geometric>=2.5
+rdkit>=2023.9
+scikit-learn>=1.4
+pandas>=2.0
+numpy>=1.26
+matplotlib>=3.8
+seaborn>=0.13
+tqdm>=4.66
+ipykernel>=6.29

@@ -1,0 +1,11 @@
+{
+  "dataset": "b3db",
+  "rows_in": 7807,
+  "missing_dropped": 0,
+  "invalid_smiles_dropped": 2,
+  "duplicates_merged": 0,
+  "label_conflicts_dropped": 0,
+  "rows_out": 7805,
+  "positives": 4956,
+  "negatives": 2849
+}

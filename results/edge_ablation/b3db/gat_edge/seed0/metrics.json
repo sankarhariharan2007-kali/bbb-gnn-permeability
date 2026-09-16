@@ -1,0 +1,43 @@
+{
+  "model": "gat_edge",
+  "dataset": "b3db",
+  "seed": 0,
+  "n_parameters": 75777,
+  "best_epoch": 9,
+  "epochs_run": 39,
+  "train_seconds": 145.1,
+  "val": {
+    "roc_auc": 0.815785384178806,
+    "pr_auc": 0.849884961377946,
+    "accuracy": 0.75,
+    "balanced_accuracy": 0.7311896975757413,
+    "f1": 0.7975077881619937,
+    "mcc": 0.47895163746903796,
+    "threshold": 0.5362139940261841,
+    "confusion_matrix": {
+      "tn": 201,
+      "fp": 125,
+      "fn": 70,
+      "tp": 384
+    },
+    "n": 780,
+    "n_positive": 454
+  },
+  "test": {
+    "roc_auc": 0.8653475033738192,
+    "pr_auc": 0.8974071059158707,
+    "accuracy": 0.7912932138284251,
+    "balanced_accuracy": 0.7739811066126856,
+    "f1": 0.8307372793354102,
+    "mcc": 0.565972659086027,
+    "threshold": 0.5362139940261841,
+    "confusion_matrix": {
+      "tn": 218,
+      "fp": 107,
+      "fn": 56,
+      "tp": 400
+    },
+    "n": 781,
+    "n_positive": 456
+  }
+}

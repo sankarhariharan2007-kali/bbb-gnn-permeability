@@ -1,0 +1,5 @@
+,,test_roc_auc,test_roc_auc,test_pr_auc,test_pr_auc,test_balanced_accuracy,test_balanced_accuracy,test_f1,test_f1,test_mcc,test_mcc
+,,mean,std,mean,std,mean,std,mean,std,mean,std
+dataset,model,,,,,,,,,,
+b3db,dmpnn,0.8888,0.0095,0.9186,0.0126,0.7765,0.0261,0.8273,0.0316,0.5699,0.0279
+bbbp,dmpnn,0.9425,0.0071,0.9783,0.0029,0.8679,0.0255,0.8992,0.0116,0.6813,0.0622

@@ -1,0 +1,43 @@
+{
+  "model": "sage_edge",
+  "dataset": "b3db",
+  "seed": 1,
+  "n_parameters": 112441,
+  "best_epoch": 70,
+  "epochs_run": 100,
+  "train_seconds": 260.5,
+  "val": {
+    "roc_auc": 0.9373542887821669,
+    "pr_auc": 0.9681428510242489,
+    "accuracy": 0.8487179487179487,
+    "balanced_accuracy": 0.8625295099690375,
+    "f1": 0.8778467908902692,
+    "mcc": 0.6935205559088714,
+    "threshold": 0.757973313331604,
+    "confusion_matrix": {
+      "tn": 238,
+      "fp": 25,
+      "fn": 93,
+      "tp": 424
+    },
+    "n": 780,
+    "n_positive": 517
+  },
+  "test": {
+    "roc_auc": 0.8771472574339534,
+    "pr_auc": 0.8838353803858204,
+    "accuracy": 0.7605633802816901,
+    "balanced_accuracy": 0.7662665034421935,
+    "f1": 0.7483176312247645,
+    "mcc": 0.5382853587062479,
+    "threshold": 0.757973313331604,
+    "confusion_matrix": {
+      "tn": 316,
+      "fp": 51,
+      "fn": 136,
+      "tp": 278
+    },
+    "n": 781,
+    "n_positive": 414
+  }
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "source": "adenot",
+    "training_pool": [
+      "bbbp",
+      "b3db"
+    ],
+    "rows_in": 1650,
+    "invalid_smiles_dropped": 1,
+    "direct_overlap_molecules": 1559,
+    "scaffold_groups_dropped": 810,
+    "additional_molecules_dropped_via_group": 31,
+    "rows_out": 59,
+    "positives": 15,
+    "negatives": 44,
+    "pct_dropped_total": 0.9642
+  },
+  {
+    "source": "wang",
+    "training_pool": [
+      "bbbp",
+      "b3db"
+    ],
+    "rows_in": 1592,
+    "invalid_smiles_dropped": 5,
+    "direct_overlap_molecules": 1469,
+    "scaffold_groups_dropped": 761,
+    "additional_molecules_dropped_via_group": 63,
+    "rows_out": 55,
+    "positives": 38,
+    "negatives": 17,
+    "pct_dropped_total": 0.9653
+  }
+]
