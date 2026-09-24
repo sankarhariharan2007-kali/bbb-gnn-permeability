@@ -5,7 +5,7 @@
   "n_parameters": 112441,
   "best_epoch": 34,
   "epochs_run": 64,
-  "train_seconds": 38.3,
+  "train_seconds": 33.0,
   "val": {
     "roc_auc": 0.9233506944444444,
     "pr_auc": 0.9827977111259069,
