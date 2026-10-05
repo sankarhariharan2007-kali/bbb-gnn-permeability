@@ -118,6 +118,7 @@ def train(
     schedule: str = "linear",
     k_anneal: int = 100,
     c_transform: str = "raw",
+    drop: tuple[str, ...] = (),
     max_len: int = 72,
     device: str = "cpu",
     out_dir: Path = OUT_DIR,
@@ -132,6 +133,10 @@ def train(
             f"advantage. Run it first: "
             f"python -m src.generator --pretrain --dataset {dataset}"
         )
+    bad = set(drop) - set(W0)
+    if bad or len(set(drop)) >= len(W0):
+        raise ValueError(f"drop must be a proper subset of {sorted(W0)}, got {drop}")
+
     # Seed every source of randomness that differs between replicate runs: the
     # torch RNG drives both sampling and D's init, and `rng` drives D's real
     # batches. Without this a "3-seed baseline" would be three identical runs.
@@ -174,6 +179,10 @@ def train(
         valid_history.append(float(terms["valid"].mean()))
         w = weights_at(k, W0, WF, schedule=schedule, k_anneal=k_anneal,
                        valid_history=valid_history)
+        # Ablation: zero the weight, keep computing the term. The term is still
+        # scored and logged (c_mean etc.), so what the classifier thinks of the
+        # generated molecules stays observable even when it no longer steers.
+        w = {key: (0.0 if key in drop else val) for key, val in w.items()}
         rewards = assemble(terms, d_scores, w, c_transform=c_transform)
         # Hurdle form: the reward from `assemble` is zero-inflated by
         # construction, so the invalid molecules must not set the scale the
@@ -270,7 +279,7 @@ def train(
             "clip_eps": clip_eps, "kl_coef": kl_coef,
             "invalid_floor": invalid_floor, "schedule": schedule,
             "k_anneal": k_anneal, "max_len": max_len, "seed": seed,
-            "c_transform": c_transform,
+            "c_transform": c_transform, "drop": list(drop),
             "reference_stats": ref_stats,
         }, indent=1))
         sample = [s for s in gen.sample(200, device=device)["smiles"]
@@ -368,6 +377,8 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--c-transform", default="raw", choices=["raw", "logit"],
                     help="rescale the permeability term; see reward.transform_c")
+    ap.add_argument("--drop", default="",
+                    help="comma-separated reward terms to zero, from D,C,Q,S")
     ap.add_argument("--out-dir", default=None,
                     help="defaults to results/gan/seed<seed>")
     args = ap.parse_args()
@@ -378,6 +389,7 @@ if __name__ == "__main__":
               ppo_epochs=args.ppo_epochs, n_d=args.n_d, schedule=args.schedule,
               k_anneal=args.k_anneal, kl_coef=args.kl_coef,
               invalid_floor=args.invalid_floor, device=args.device,
-              seed=args.seed, out_dir=out, c_transform=args.c_transform)
+              seed=args.seed, out_dir=out, c_transform=args.c_transform,
+              drop=tuple(t for t in args.drop.split(",") if t))
     else:
         _self_check()
