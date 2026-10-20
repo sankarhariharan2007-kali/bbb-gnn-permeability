@@ -17,16 +17,24 @@ kept separate so the core comparison stays clean:
 |---|---|---|
 | **base** | the four operators, identical skeleton | `src/models.py`, `src/train.py` |
 | **edge ablation** | bond features via `gine`, `gat_edge`, `sage_edge` | `src/models_edge.py`, `src/train_edge.py` |
-| **D-MPNN** | Chemprop-style directed bond-level message passing | `src/models_dmpnn.py`, `src/train_dmpnn.py` |
 | **hybrid** | graph embedding **+ 8 RDKit descriptors** (incl. a CNS-MPO proxy) | `src/models_hybrid.py`, `src/hybrid_features.py`, `src/train_hybrid.py` |
 | **descriptor baseline** | LightGBM on the same descriptors, same scaffold folds | `baselines/descriptor_baseline_v2.py` |
 
 > The hybrid family **does** use hand-crafted descriptors. The "no descriptors"
-> statement applies to the base, edge and D-MPNN families only.
+> statement applies to the base and edge families only.
+
+> **Paper.** This repository accompanies the RECOMB 2027 submission *Group-Relative
+> Reinforcement Learning for Blood-Brain-Barrier Molecule Design: What Restrains
+> Reward Hacking, and What Does Not*. The paper, its supplement, every figure and
+> the scripts that regenerate them are in [`paper/`](paper/). Everything reported
+> there is reproduced by `python -m src.pipeline` (see "Running" below).
+
+> **The pipeline and the evidence for every part of it:**
+> [`documentation/pipeline.md`](documentation/pipeline.md).
 
 ## Results at a glance
 
-Test ROC-AUC, mean ± std over 3 seeds. **Each seed is a different scaffold
+Test ROC-AUC, mean ± std over **10 seeds**. **Each seed is a different scaffold
 split**, so ± includes split variance, not just initialization variance. Full
 tables, with PR-AUC / balanced accuracy / F1 / MCC, are in
 [`results/master_comparison.csv`](results/master_comparison.csv)
@@ -34,38 +42,53 @@ tables, with PR-AUC / balanced accuracy / F1 / MCC, are in
 
 | family (best member) | BBBP | B3DB |
 |---|---|---|
-| descriptor baseline (LightGBM) | 0.904 ± 0.036 | 0.857 ± 0.002 |
-| base GNN (best of GCN/SAGE/GIN/GAT) | 0.936 ± 0.015 (GCN) | 0.891 ± 0.004 (SAGE) |
-| edge ablation (GINE) | 0.940 ± 0.002 | 0.891 ± 0.007 |
-| D-MPNN | 0.943 ± 0.007 | 0.889 ± 0.010 |
-| ensemble of the 4 base GNNs | 0.940 ± 0.026 (soft vote) | 0.898 ± 0.004 (stacking) |
-| hybrid GNN + descriptors | **0.961 ± 0.014** (GAT) | **0.902 ± 0.006** (SAGE) |
+| descriptor baseline (LightGBM, 8 descriptors) | 0.881 ± 0.039 | 0.852 ± 0.040 |
+| base GNN (best of GCN/SAGE/GIN/GAT) | 0.895 ± 0.038 (GCN) | 0.893 ± 0.051 (SAGE) |
+| edge ablation (best of 3) | 0.893 ± 0.031 (SAGE-edge) | 0.889 ± 0.052 (SAGE-edge) |
+| hybrid GNN + descriptors | 0.909 ± 0.029 (GAT) | 0.900 ± 0.052 (SAGE) |
+| hybrid + BatchNorm (best overall) | **0.921 ± 0.032** (GCN) | **0.905 ± 0.047** (GIN) |
 
 How to read this:
 
-- **Differences among the four base operators are within seed noise** (BBBP std
-  reaches 0.045). Use `python -m src.paired_analysis` before claiming any
-  architecture ranking.
-- Edge features and D-MPNN give no consistent gain over the plain GNNs.
-- Ensembling gains (~0.003–0.006 over the best single model) are also inside
-  the noise.
-- The hybrid family is the strongest **in-distribution**. That advantage does
-  **not** transfer cleanly to the external holdouts (below).
+- **Most differences are still inside seed noise.** `paired_analysis` separates
+  **13 of 55 model pairs** at 95% with n=10; the largest effect is hybrid-SAGE
+  over base-SAGE at +0.018. Run `python -m src.paired_analysis` before claiming
+  any architecture ranking.
+- Edge features give no consistent gain over the plain GNNs.
+- The hybrid family is the strongest **in-distribution** by ~0.015, and that
+  advantage **does not survive on the external holdout** (below).
+- **These are lower than this README's earlier 3-seed figures (hybrid GAT
+  0.961), and the drop is attributed rather than mysterious.** Two deliberate
+  changes cost accuracy and bought correctness: the Murcko+Tanimoto split
+  (~0.037 on BBBP), which stopped acyclic molecules being silently excluded
+  from every test fold, and moving off BatchNorm (~0.015), which removed a
+  reward-stationarity hazard. Both are measured in
+  [`documentation/limitations.md`](documentation/limitations.md) 5.0. The old
+  figures were optimistic, not wrong by accident.
 - Absolute numbers are **not comparable** to the 0.65–0.70 BBBP scaffold
   figures in the literature; see "The scaffold split is balanced" below.
 
 ### External holdout (Adenot, Wang)
 
-Every checkpoint (72 total) was also scored on two external sets that were
+Every checkpoint (220 total) was also scored on two external sets that were
 filtered to be scaffold-disjoint from **both** BBBP and B3DB. The leak filter
 removes **~96.5%** of each source, leaving only **59 molecules (Adenot)** and
 **55 molecules (Wang)** — see `data/external_holdout/leak_report.json`.
 
-- **Adenot** is saturated: every model scores ROC-AUC 0.983–1.000, so it cannot
-  discriminate between architectures.
-- **Wang** is the informative set: ROC-AUC 0.795–0.898, MCC 0.40–0.61.
-- On Wang the hybrid advantage is inconsistent (e.g. base SAGE/BBBP 0.898 vs
-  hybrid SAGE/BBBP 0.891; the reverse holds for GCN/B3DB).
+| family | Adenot (n=59) | Wang (n=55) |
+|---|---|---|
+| base | 0.985 ± 0.018 | 0.838 ± 0.048 |
+| edge ablation | 0.987 ± 0.014 | 0.838 ± 0.054 |
+| hybrid | 0.992 ± 0.007 | **0.831 ± 0.048** |
+
+- **Adenot is saturated** — every family scores ~0.99, so it cannot
+  discriminate between architectures at all.
+- **Wang is the informative set, and everything falls to ~0.84.** That is the
+  honest figure for novel chemistry; the ~0.90 above is in-distribution.
+- **The hybrid family's lead does not transfer.** It is the best of the three
+  on BBBP (0.909) and the *worst* of the three on Wang (0.831). Descriptors
+  help on molecules resembling the training set and stop helping beyond it —
+  which is the single most important caveat on the headline table.
 - At n ≈ 55–59, single-digit error counts swing MCC. Treat rankings as
   suggestive; bootstrap CIs are still to do.
 
@@ -111,13 +134,16 @@ Raw datasets live in `data/raw/` and are read from there by every module.
 | `models.py`, `train.py`, `run_all.py` | base four-operator comparison (4 × 2 × 3 = 24 runs) |
 | `evaluate.py` | metrics; threshold chosen on validation only |
 | `ensemble.py` | soft vote, rank average, logistic stacking (within-seed) |
-| `models_edge.py`, `train_edge.py` | edge-aware ablation (18 runs) |
-| `models_dmpnn.py`, `train_dmpnn.py` | D-MPNN (6 runs) |
-| `models_hybrid.py`, `hybrid_features.py`, `train_hybrid.py` | GNN + descriptor hybrid (24 runs) |
+| `models_edge.py`, `train_edge.py` | edge-aware ablation (60 runs) |
+| `brics.py` | BRICS fragments + motif graphs; shared with the generator |
+| `models_hybrid.py`, `hybrid_features.py`, `train_hybrid.py` | GNN + descriptor hybrid (80 runs) |
 | `external_holdout.py`, `eval_external_holdout.py` | build leak-free holdouts; score every checkpoint on them |
 | `paired_analysis.py` | paired-seed architecture comparison |
 | `collect_all.py` | merge every result table into `results/master_comparison.csv` |
 | `reward.py`, `grpo.py`, `generator.py`, `train_gan.py` | molecule generation (GRPO) |
+| `brics_assembly.py`, `brics_generator.py` | the settled generator: fragment assembly, valid by construction |
+| `postfilter.py` | screen and rank generated molecules into a candidate set |
+| `pipeline.py` | runs every stage above in order, resumable |
 | `diversity.py`, `analyze_drift.py` | scaffold / Tanimoto / descriptor-drift diagnostics |
 | `classifier_ood.py`, `mc_dropout.py`, `kl_sweep.py` | is the reward trustworthy, and can KL hold back the collapse? |
 
@@ -125,19 +151,22 @@ Raw datasets live in `data/raw/` and are read from there by every module.
 
 ```bash
 # --- smoke tests (no training) ---
-python -m src.featurize                    # featurizer
-python -m src.models                       # forward-pass shapes
+python -m src.featurize                    # featurizer + FEATURE_ID
+python -m src.models                       # shapes, norms, batch independence
+python -m src.brics                        # fragment decompose/reassemble
+python -m src.split                        # grouping + the leak-assertion trap
 python -m src.datasets                     # build caches, verify splits
 
 # --- core comparison ---
 python -m src.train --model gcn --dataset bbbp --seed 0     # one run
-python -m src.run_all                      # all 24 runs
+python -m src.run_all                      # all 80 runs (10 seeds)
+python -m src.run_all --threads 6          # pin the reduction order
 python -m src.ensemble                     # combine predictions (within seed)
 
 # --- extensions ---
-python -m src.train_edge --run-all         # 18 runs: gine / gat_edge / sage_edge
-python -m src.train_dmpnn --run-all        # 6 runs
-python -m src.train_hybrid --run-all       # 24 runs
+python -m src.train_edge --run-all         # 60 runs: gine / gat_edge / sage_edge
+python -m src.train_hybrid --run-all       # 80 runs, GraphNorm
+python -m src.train_hybrid --run-all --norm batch   # 80 runs -> results/hybrid_batch
 python baselines/descriptor_baseline_v2.py # LightGBM baseline (no torch needed)
 
 # --- external evaluation + aggregation ---
@@ -146,13 +175,26 @@ python -m src.eval_external_holdout        # score all checkpoints on them
 python -m src.paired_analysis --all-sources
 python -m src.collect_all                  # -> results/master_comparison.csv
 
-# --- generation ---
-python -m src.generator --pretrain         # MLE warm start (~1 min on CPU)
-python -m src.train_gan --steps 200        # GRPO
-python -m src.reward && python -m src.grpo # self-checks
+# --- the whole pipeline, resumable (see documentation/full_pipeline.md) ---
+python -m src.pipeline --list              # what would run, what would skip
+python -m src.pipeline                     # classifier -> reward -> generator -> screen
+
+# --- generation, by hand ---
+python -m src.reward && python -m src.grpo # self-checks; reward is the gate
+python -m src.brics_generator --pretrain   # MLE warm start (~9 min, NOT optional)
+python -m src.train_gan --generator brics --steps 250 --threads 6 \
+    --seed 0 --reward-seed 0 --kl-coef 1.0 \
+    --warm-start results/generator/bbbp_brics_pretrained.pt \
+    --out-dir results/brics_kl1/rs0_ws0
+python -m src.postfilter results/brics_kl1/* --from-step 150 \
+    --out results/candidates/brics10
 
 jupyter lab notebooks/results.ipynb
 ```
+
+`--kl-coef 1.0` is mandatory for the BRICS generator. The repo default of 0.3
+was validated for the SELFIES action space and does not transfer — at 0.3 BRICS
+collapses to scaffold diversity 0.643 with 26% duplicates per group.
 
 Runs default to CPU — these graphs are small enough that MPS kernel-launch
 overhead makes it slower. `--device mps` is available to test that.
@@ -162,7 +204,11 @@ overhead makes it slower. `--device mps` is available to test that.
 **One skeleton, four operators.** Depth, hidden width, normalization, readout,
 classifier head and training loop are identical across all four models. Only the
 convolution differs, so a performance gap is attributable to the aggregation
-scheme rather than to incidental capacity differences. `GATConv` uses
+scheme rather than to incidental capacity differences. (Measured caveat: the
+virtual-node arm shows part of what this comparison attributes to aggregation
+is really *reach* -- with `num_layers=3` the operators differ in how far they
+propagate, and a global channel largely equalizes them. See
+`documentation/limitations.md` 5.0b.) `GATConv` uses
 `hidden // heads` channels per head so its concatenated output matches the
 others rather than inflating fourfold.
 
@@ -173,6 +219,15 @@ file is ordered so its entire back half is class 1, and both folds come out
 **100% positive**, making ROC-AUC undefined. The balanced split (Chemprop-style)
 shuffles scaffold groups under a per-seed RNG instead. `src/split.py` keeps the
 size-sorted variant behind `balanced=False` so the artifact can be reproduced.
+
+**Acyclic molecules are clustered, not merged.** `MurckoScaffoldSmiles` returns
+`''` for anything with no ring, so every acyclic molecule used to collapse into
+a single group -- and because groups are never split across folds, that group
+always landed in train and those molecules were never tested (95/1965 BBBP,
+311/7805 B3DB). They are now grouped by Morgan/Tanimoto similarity (Butina,
+cutoff 0.6). `split.group_keys` is the single definition of group identity and
+is called by both the splitter and the leak assertion, which otherwise disagree
+and report a leak that does not exist.
 
 Consequence: absolute numbers are **not** comparable to the widely quoted
 BBBP scaffold figures near 0.65–0.70, which come from the size-sorted protocol.
@@ -211,17 +266,26 @@ generator -> SMILES -> RDKit sanitization -> frozen classifier ensemble
                                           -> discriminator     } -> R(m) -> advantage -> clipped update
 ```
 
+**The settled generator is BRICS fragment assembly, not SELFIES.** It is valid
+by construction, and `src/brics_generator.py` supersedes `src/generator.py` for
+anything new; the SELFIES generator is kept because the frontier comparison
+cites it.
+
 ```bash
-python -m src.generator --pretrain     # MLE warm start on real molecules
-python -m src.train_gan --steps 200    # GRPO
+python -m src.pipeline                 # the whole thing, resumable
 ```
 
 Each module runs its own self-check with no arguments (`python -m src.grpo`).
 
-From a fresh clone those two commands are the whole cold start — the classifier
-checkpoints the reward depends on are committed under `results/`, so nothing in
-the scoring half needs retraining. On CPU the warm start is ~1 min and GRPO
-~0.7 s/step at group 32.
+The classifier checkpoints the reward depends on are committed under
+`results/`, as are the MLE warm start and policy seeds 0-2, so a default
+pipeline run trains only the seven remaining policy seeds (~42 min). On CPU
+BRICS GRPO is ~1.46 s/step at group 64, so 250 steps is ~6 min.
+
+**If you retrain the classifier, nothing re-points the reward** — it reads
+whatever is at those checkpoint paths. `python -m src.reward` is the gate that
+catches a mismatch, and `python -m src.pipeline` runs it before any generator
+work.
 
 Reward (Eq. 5) is a weighted sum of four terms: the discriminator score, the
 frozen permeability classifier, QED, and a synthesizability score. `assemble()`
@@ -238,18 +302,24 @@ w = weights_at(step, w0, wf, schedule="linear", k_anneal=1000)
 rewards = assemble(terms, d_scores, w)
 ```
 
-**"Frozen" has to mean `eval()`, not just `requires_grad_(False)`.** The
-classifier uses `BatchNorm1d`. In train mode its output depends on the batch it
-is scored in, so the same molecule would earn a different reward depending on
-which candidates happened to share its group — the reward would stop being a
-function of the molecule at all. `load_frozen_classifier` sets `eval()` and
-`_self_check` asserts a molecule scores identically alone and in company.
+**"Frozen" has to mean `eval()`, not just `requires_grad_(False)`.** This used
+to be about `BatchNorm1d`, whose output depends on the batch it is scored in --
+so the same molecule earned a different reward depending on which candidates
+shared its group, and the reward stopped being a function of the molecule. The
+default is now **GraphNorm**, which is batch-independent by construction, so
+that hazard is gone rather than guarded. `eval()` remains load-bearing for
+`nn.Dropout`, which is still stochastic in train mode. The alone-vs-in-company
+assertion stays because it is what catches a regression back to BatchNorm.
 
 **Ensemble members must share a scaffold split.** The seed reseeds the split, so
 averaging checkpoints from different seeds averages models that trained on each
 other's held-out molecules. `results/edge_ablation/` reuses the core split
 seed-for-seed, which is what makes a `gin`/`gat`/`gine` ensemble legitimate;
-`_self_check` asserts the saved fold indices match rather than trusting it.
+`load_frozen_classifier` asserts the saved fold indices match on **every
+load**, and also that members share a norm -- a mixed-norm ensemble is not a
+leak, so the fold check cannot see it, but it does mean a checkout caught
+mid-update. Both previously lived only in `_self_check`, hardcoded to one model
+triple at one seed.
 
 **Validity means sanitization, not grammar.** A SELFIES string always parses to
 *some* molecule, so a generator's syntactic guarantee says nothing about whether
@@ -383,9 +453,20 @@ duplicate copies disagree on the label are dropped entirely rather than guessed.
 
 ## Known limitations
 
-- **Three seeds.** Seed-to-seed std is large on BBBP; most architecture
-  differences are not distinguishable from noise. More seeds and paired
-  bootstrap CIs are needed before ranking models.
+- **Ten seeds** (was three), and it is still not enough to rank architectures:
+  `paired_analysis` separates only 13 of 55 pairs at 95%. Paired bootstrap CIs
+  are still to do.
+- **The in-distribution and out-of-distribution orderings disagree.** Hybrid is
+  best on BBBP and worst of the three families on Wang. Any claim about which
+  family is "better" has to say on which distribution.
+- **The normalization choice is recorded, not settled.** GraphNorm is the
+  default; BatchNorm scores ~0.015 higher on BBBP but makes a frozen
+  classifier's output depend on batch composition. See
+  `documentation/limitations.md` 5.0.
+- **The virtual node adds nothing under the current default.** +0.0124 under
+  LayerNorm, +0.0003 +/- 0.0023 under GraphNorm -- the two were fixing the same
+  thing, since GraphNorm already carries graph-level statistics into every
+  node. 5.0b.
 - **Tiny external holdouts** (n = 55–59). Adenot is saturated and uninformative;
   Wang results swing on single-digit error counts.
 - **Hybrid model uses descriptors**, including a CNS-MPO *proxy* (5 of 6 terms;
@@ -399,13 +480,19 @@ duplicate copies disagree on the label are dropped entirely rather than guessed.
 - **Domain bias.** BBBP and the external sets contain many charged / β-lactam
   compounds that are easy negatives, which inflates headline AUC.
 - **Committed artifacts are large** (`data/processed/*.pt`, model checkpoints
-  under `results/`); a Git LFS migration would shrink clones.
+  under `results/` and `results_layernorm/`); a Git LFS migration would shrink
+  clones. The processed cache alone is ~73 MB and GitHub warns on push.
 - **No license file** has been added; the repository owner needs to choose one.
 
 ## Further reading (`documentation/`)
 
 | file | contents |
 |---|---|
+| **`full_pipeline.md`** | **the whole recipe end to end — start here** |
+| `pipeline.md` | the classifier half, and the evidence for every part of it |
+| `generator_pipeline.md` | the generation half, at the three-seed configuration |
+| `brics_generator_findings.md` | what was learned building the BRICS generator |
+| `limitations.md` | every known failure, measured, including the retractions |
 | `reward_hacking_investigation.md` | how the collapse was found, measured and diagnosed |
 | `cold_and_warm_start.md` | why the generator uses an MLE warm start and a two-part advantage |
 | `open_items.pdf` / `.tex` | formalization of the open items |

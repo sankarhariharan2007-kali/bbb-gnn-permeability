@@ -26,7 +26,7 @@ WHAT IT DOES
    from both BBBP and B3DB, so no model here has seen them in any form.
 2. Converts each holdout SMILES to a PyG graph (skips anything RDKit can't
    parse, same as datasets.py does for the training sets).
-3. Walks every checkpoint under results/{, hybrid/, edge_ablation/, dmpnn/}
+3. Walks every checkpoint under results/{, hybrid/, edge_ablation/}
    and, for each, loads its saved state_dict into the matching architecture.
 4. For hybrid checkpoints, recomputes the 8 descriptors for the holdout
    molecules and standardizes them using that SPECIFIC seed's saved
@@ -58,10 +58,9 @@ from torch_geometric.loader import DataLoader
 from .datasets import ROOT
 from .evaluate import compute_metrics
 from .external_holdout import EXTERNAL_SOURCES, build_clean_holdout
-from .featurize import smiles_to_graph
+from .featurize import run_contract, smiles_to_graph
 from .hybrid_features import compute_descriptors
 from .models import MODELS, build_model
-from .models_dmpnn import build_dmpnn_model
 from .models_edge import EDGE_MODELS, build_edge_model
 from .models_hybrid import build_hybrid_model
 
@@ -127,6 +126,14 @@ def discover_checkpoints() -> list[dict]:
                     found.append(dict(family="hybrid", dataset=dataset,
                                        model=model_name, seed_dir=seed_dir))
 
+    # hybrid_batch: the hybrid family under BatchNorm, same layout as hybrid
+    for dataset in ("bbbp", "b3db"):
+        for model_name in MODELS:
+            for seed_dir in sorted((RESULTS_DIR / "hybrid_batch" / dataset / model_name).glob("seed*")):
+                if (seed_dir / "model.pt").exists():
+                    found.append(dict(family="hybrid_batch", dataset=dataset,
+                                      model=model_name, seed_dir=seed_dir))
+
     # edge_ablation: results/edge_ablation/<dataset>/<model>/seed<N>/model.pt
     for dataset in ("bbbp", "b3db"):
         for model_name in EDGE_MODELS:
@@ -135,25 +142,21 @@ def discover_checkpoints() -> list[dict]:
                     found.append(dict(family="edge_ablation", dataset=dataset,
                                        model=model_name, seed_dir=seed_dir))
 
-    # dmpnn: results/dmpnn/<dataset>/seed<N>/model.pt  (no per-model subdir)
-    for dataset in ("bbbp", "b3db"):
-        for seed_dir in sorted((RESULTS_DIR / "dmpnn" / dataset).glob("seed*")):
-            if (seed_dir / "model.pt").exists():
-                found.append(dict(family="dmpnn", dataset=dataset,
-                                   model="dmpnn", seed_dir=seed_dir))
-
     return found
 
 
-def build_model_for(family: str, model_name: str) -> torch.nn.Module:
+def build_model_for(family: str, model_name: str, **arch) -> torch.nn.Module:
+    """Rebuild under the architecture a run recorded, not under today's defaults.
+
+    This is the one checkpoint loader that does not route through
+    reward._checkpoint, so it needs the contract check of its own.
+    """
     if family == "base":
-        return build_model(model_name)
-    if family == "hybrid":
-        return build_hybrid_model(model_name)
+        return build_model(model_name, **arch)
+    if family in ("hybrid", "hybrid_batch"):
+        return build_hybrid_model(model_name, **arch)
     if family == "edge_ablation":
-        return build_edge_model(model_name)
-    if family == "dmpnn":
-        return build_dmpnn_model()
+        return build_edge_model(model_name, **arch)
     raise ValueError(f"unknown family: {family!r}")
 
 
@@ -222,14 +225,15 @@ def main() -> None:
         )
         seed = int(seed_dir.name.replace("seed", ""))
 
-        model = build_model_for(family, model_name).to(device)
+        arch = run_contract(seed_dir)
+        model = build_model_for(family, model_name, **arch).to(device)
         state = torch.load(seed_dir / "model.pt", map_location=device)
         model.load_state_dict(state)
 
         threshold = load_val_threshold(seed_dir)
 
         mu = sigma = None
-        if family == "hybrid":
+        if family.startswith("hybrid"):
             scaling = np.load(seed_dir / "descriptor_scaling.npz")
             mu, sigma = scaling["mu"], scaling["sigma"]
 

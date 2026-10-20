@@ -20,9 +20,10 @@ import torch.nn as nn
 from torch_geometric.loader import DataLoader
 
 from .datasets import ROOT, load_dataset
+from .featurize import EDGE_DIM, FEATURE_ID, NODE_DIM
 from .evaluate import best_threshold, compute_metrics
-from .models import MODELS, build_model, count_parameters
-from .split import check_split, scaffold_split
+from .models import MODELS, NORMS, build_model, count_parameters
+from .split import SPLIT_ID, SPLIT_ID_MURCKO_ONLY, check_split, scaffold_split
 
 RESULTS_DIR = ROOT / "results"
 
@@ -59,6 +60,9 @@ def train_one(
     num_layers: int = 3,
     dropout: float = 0.3,
     heads: int = 4,
+    norm: str = "graph",
+    virtual_node: bool = False,
+    cluster_acyclic: bool = True,
     device: str = "cpu",
     out_dir: Path | None = None,
     verbose: bool = True,
@@ -72,14 +76,17 @@ def train_one(
 
     # The split is seeded, so each seed sees a different scaffold partition and
     # the reported spread captures split variance as well as init variance.
-    train_idx, val_idx, test_idx = scaffold_split(smiles, seed=seed, verbose=False)
-    check_split(smiles, train_idx, val_idx, test_idx, labels)
+    train_idx, val_idx, test_idx = scaffold_split(
+        smiles, seed=seed, verbose=False, cluster_acyclic=cluster_acyclic)
+    check_split(smiles, train_idx, val_idx, test_idx, labels,
+                cluster_acyclic=cluster_acyclic)
 
     train_set = [graphs[i] for i in train_idx]
     val_set = [graphs[i] for i in val_idx]
     test_set = [graphs[i] for i in test_idx]
 
     # BatchNorm needs >1 sample per batch; drop a trailing singleton batch.
+    # Harmless under LayerNorm, kept so every norm trains on identical batches.
     drop_last = len(train_set) % batch_size == 1
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,
                               drop_last=drop_last)
@@ -87,7 +94,8 @@ def train_one(
     test_loader = DataLoader(test_set, batch_size=256)
 
     model = build_model(model_name, hidden=hidden, num_layers=num_layers,
-                        dropout=dropout, heads=heads).to(dev)
+                        dropout=dropout, heads=heads, norm=norm,
+                        virtual_node=virtual_node).to(dev)
 
     # pos_weight from the training fold only. Both datasets skew positive, so
     # this mainly helps accuracy/F1; ROC-AUC is threshold-free.
@@ -155,6 +163,20 @@ def train_one(
         "dataset": dataset_name,
         "seed": seed,
         "n_parameters": count_parameters(model),
+        # The run contract. Checkpoints are bare state_dicts, so without these
+        # nothing on disk says which featurizer, architecture or partition
+        # produced them -- and `build_model`'s defaults silently became the
+        # contract. `featurize.run_contract` validates and replays them.
+        "feature_id": FEATURE_ID,
+        "node_dim": NODE_DIM,
+        "edge_dim": EDGE_DIM,
+        "hidden": hidden,
+        "num_layers": num_layers,
+        "dropout": dropout,
+        "heads": heads,
+        "norm": norm,
+        "virtual_node": virtual_node,
+        "split": SPLIT_ID if cluster_acyclic else SPLIT_ID_MURCKO_ONLY,
         "best_epoch": best_epoch,
         "epochs_run": len(history),
         "train_seconds": round(time.time() - start, 1),
@@ -201,9 +223,26 @@ def main() -> None:
     p.add_argument("--num-layers", type=int, default=3)
     p.add_argument("--dropout", type=float, default=0.3)
     p.add_argument("--heads", type=int, default=4)
+    p.add_argument("--norm", choices=NORMS, default="graph",
+                   help="graph (default) and layer are batch-independent, which "
+                        "a frozen reward requires; batch scores higher but makes "
+                        "C(m) depend on the group a molecule is scored in")
+    p.add_argument("--virtual-node", action="store_true",
+                   help="per-graph state injected between layers, so an atom's "
+                        "receptive field is not capped at num_layers hops")
+    p.add_argument("--murcko-only-split", action="store_true",
+                   help="disable Tanimoto clustering of acyclic molecules "
+                        "(reproduces the pre-contract split)")
     p.add_argument("--device", default="cpu",
                    help="cpu (default) is fastest for these small graphs")
+    p.add_argument("--threads", type=int, default=None,
+                   help="torch.set_num_threads; authoritative where "
+                        "OMP_NUM_THREADS is not (CLAUDE.md). Pinned because "
+                        "OpenMP changes float reduction order.")
     args = p.parse_args()
+    if args.threads is not None:
+        torch.set_num_threads(args.threads)
+
 
     print(f"[{args.dataset}/{args.model}/seed{args.seed}]")
     train_one(
@@ -211,7 +250,10 @@ def main() -> None:
         epochs=args.epochs, patience=args.patience, lr=args.lr,
         weight_decay=args.weight_decay, batch_size=args.batch_size,
         hidden=args.hidden, num_layers=args.num_layers, dropout=args.dropout,
-        heads=args.heads, device=args.device,
+        heads=args.heads, norm=args.norm,
+        virtual_node=args.virtual_node,
+        cluster_acyclic=not args.murcko_only_split,
+        device=args.device,
     )
 
 

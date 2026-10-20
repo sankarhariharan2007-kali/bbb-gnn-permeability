@@ -1,0 +1,177 @@
+% RECOMB 2027 talk slides. Place in paper/ and compile from there:
+%   pdflatex slides.tex && pdflatex slides.tex
+% Figures are read from paper/figs/; a missing file shows a grey placeholder box.
+\documentclass[aspectratio=169,11pt]{beamer}
+\usepackage{graphicx,booktabs,amsmath}
+\usetheme{default}
+\usecolortheme{seahorse}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{\hfill\insertframenumber/\inserttotalframenumber\hspace{1em}\vspace{0.5em}}
+\setbeamertemplate{itemize items}[circle]
+
+\newcommand{\fig}[2]{\IfFileExists{figs/#1}{\includegraphics[width=\linewidth,height=#2,keepaspectratio]{figs/#1}}%
+  {\fbox{\parbox[c][#2][c]{0.8\linewidth}{\centering\small missing figs/#1}}}}
+\newcommand{\REPOURL}{github.com/JSR996/bbb-gnn-permeability}
+
+\title{Reusing a BBB Classifier as a GRPO Reward}
+\subtitle{How the loop collapses, why, and what restrains it}
+\author{S Hariharan, J Shrenik Reddy, Ansa N\\
+{\small\texttt{\{524cs0005, 124cs006, 124cs0077\}@iiitk.ac.in}}}
+\institute{RECOMB 2027}
+\date{}
+
+\begin{document}
+
+\begin{frame}[plain]\titlepage\end{frame}
+
+\begin{frame}{Why this problem}
+\begin{itemize}\itemsep4pt
+  \item Whether a molecule crosses the blood--brain barrier (BBB) decides if it can act on the CNS.
+  \item Labelled data are small: BBBP $\approx$ 2\,000 compounds, B3DB $\approx$ 8\,000.
+  \item GNNs rank well on them, so it is tempting to reuse the trained network as the \textbf{reward} of a generator.
+  \item But a generator queries the classifier on molecules \emph{chosen to maximize its output}, so any weakness is actively sought out.
+\end{itemize}
+\vspace{4pt}
+\textbf{Question:} what happens when we do exactly that, and which interventions actually help?
+\end{frame}
+
+\begin{frame}{System and protocol}
+\centering
+SMILES $\rightarrow$ RDKit graph $\rightarrow$ GNN $\rightarrow$ $P(\text{BBB permeable})$ \quad $\Longrightarrow$ \quad frozen reward for a GRPO generator
+\vspace{6pt}
+\begin{itemize}\itemsep3pt
+  \item \textbf{Leak-corrected scaffold split:} the standard Murcko grouping silently excluded acyclic molecules from every test fold; we fix this.
+  \item \textbf{Ten seeds}; each seed is a different scaffold split, so $\pm$ includes split variance.
+  \item \textbf{External holdouts} (Adenot, Wang) filtered to be scaffold-disjoint from both training sets.
+  \item Frozen classifier means \texttt{eval()}: BatchNorm in train mode would make a molecule's reward depend on its group.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Classifier side: what is actually resolved}
+\begin{columns}[T]
+\column{0.42\textwidth}
+\begin{itemize}\itemsep4pt
+  \item Descriptor fusion: \textbf{+0.0099} ROC-AUC
+  \item Batch normalization: \textbf{+0.0074}
+  \item Jointly: \textbf{+0.0195}
+  \item Choice of message-passing operator: \textbf{not resolved}
+  \item In-distribution rank does not predict external rank: $r=-0.45$, $p=0.16$, 11 models (underpowered)
+\end{itemize}
+\column{0.58\textwidth}
+\centering
+\fig{classifier.pdf}{0.36\textheight}\\[2pt]
+\fig{ablation.pdf}{0.30\textheight}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Generator and the two-part advantage}
+\begin{itemize}\itemsep3pt
+  \item GRPO replaces the value function by group statistics; here rewards are \emph{zero-inflated} (invalid $\rightarrow$ flat penalty).
+  \item Pooling zeros and valid molecules lets a few invalids set the scale for ranking the valid ones.
+  \item \textbf{Hurdle advantage:} standardize within the valid subgroup; invalids get a fixed floor.
+\end{itemize}
+\vspace{4pt}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+invalid in group of 64 & 0 & 1 & 2 & 3\\
+\midrule
+spread of valid signal, pooled & 1.00 & 0.70 & 0.60 & 0.49\\
+spread of valid signal, hurdle & 1.00 & 1.00 & 1.00 & 1.00\\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{The unconstrained loop collapses --- quietly}
+\begin{columns}[c]
+\column{0.40\textwidth}
+\begin{itemize}\itemsep4pt
+  \item Scaffold fraction: $0.72$--$0.80 \rightarrow 0.07$--$0.14$ in 200 steps
+  \item Validity rises to $100\%$
+  \item Every metric the loop originally logged looks healthy
+\end{itemize}
+\column{0.60\textwidth}
+\centering\fig{collapse.pdf}{0.62\textheight}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Why: what a group-standardized update cannot see}
+\begin{columns}[c]
+\column{0.50\textwidth}
+\begin{itemize}\itemsep4pt
+  \item The standardized advantage is \textbf{blind to the absolute reward level}.
+  \item Reweighting reward terms \emph{inside} it does not restrain the collapse.
+  \item Only quantities acting \emph{outside} it do: a size gate, a fixed invalidity floor, a KL penalty.
+\end{itemize}
+\column{0.50\textwidth}
+\centering\fig{components.pdf}{0.60\textheight}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Which anchors work --- including our own retractions}
+\begin{columns}[c]
+\column{0.50\textwidth}
+\begin{itemize}\itemsep4pt
+  \item We tested anchors against the unconstrained baseline and report what held up.
+  \item Two earlier claims of ours are retracted in the paper.
+  \item The final generator assembles BRICS fragments.
+\end{itemize}
+\column{0.50\textwidth}
+\centering\fig{rejected.pdf}{0.60\textheight}
+\end{columns}
+% TODO: add one line per retracted claim from the anchors / BRICS sections.
+\end{frame}
+
+\begin{frame}{Permeability as a gate, not a direction}
+\begin{columns}[c]
+\column{0.42\textwidth}
+\begin{itemize}\itemsep4pt
+  \item BBBP: \textbf{+73\%} distinct output
+  \item Corpus reproduction: $88.9\% \rightarrow 68.4\%$
+  \item B3DB replication: gain shrinks to \textbf{+18\%}
+  \item Mechanism: the benefit scales with how badly the policy had memorized its corpus
+\end{itemize}
+\column{0.58\textwidth}
+\centering\fig{gate.pdf}{0.62\textheight}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Against baselines, and where outputs stand}
+\begin{columns}[c]
+\column{0.45\textwidth}
+\begin{itemize}\itemsep4pt
+  \item In-reward terms improve: classifier $+0.126$, QED $+0.054$
+  \item Independent CNS-MPO does not: $+0.008$, $p=0.45$
+  \item $72.0\%$ of generated molecules are absent from PubChem and the training corpus
+\end{itemize}
+\column{0.55\textwidth}
+\centering\fig{baselines.pdf}{0.62\textheight}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Shortlist and limitations}
+\begin{columns}[c]
+\column{0.50\textwidth}
+\begin{itemize}\itemsep4pt
+  \item The BBBP label measures \textbf{transport, not drug suitability}: a permeability objective rewards small lipophilic solvents.
+  \item This limitation is unresolved.
+  \item All outputs are \textbf{hypotheses, not synthesis candidates}.
+\end{itemize}
+\column{0.50\textwidth}
+\centering\fig{shortlist.png}{0.62\textheight}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Take-aways and code}
+\begin{enumerate}\itemsep4pt
+  \item A corrected split and ten seeds show most architecture differences are noise; descriptors and BatchNorm are what help.
+  \item Reusing a classifier as a reward collapses diversity while standard metrics look fine.
+  \item A group-standardized update is blind to absolute reward level: constrain from outside it.
+  \item A permeability \emph{gate} helps most when the policy memorizes its corpus.
+\end{enumerate}
+\vspace{6pt}
+\small Code, results and run histories: \texttt{\REPOURL} (branch \texttt{main}, tag \texttt{recomb2027-final});
+reproduce with \texttt{python -m src.pipeline}.
+\end{frame}
+
+\end{document}

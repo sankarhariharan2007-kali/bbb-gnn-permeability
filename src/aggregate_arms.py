@@ -21,9 +21,22 @@ report ends with the two off-instrument checks:
     gives the generator 0.80 in every configuration tried so far. Closing
     that is the realism question.
   * the INSTRUMENT GAP, C(BBBP) - C(B3DB): the training ensemble minus a
-    judge it never saw. Real drugs sit at -0.029. A gap that grows means the
-    arm found more of the selector's blind spots, not better molecules -- so
-    an arm may "win" on c_mean and still be the worse arm.
+    judge it never saw. Real BBB+ drugs sit at **+0.037** under the current
+    ensembles (n=1560; recomputed 2026-10-11). The figure here previously read
+    -0.029, from the retired pre-contract ensemble -- and since the diagnostic
+    measures DISTANCE from the real-drug gap, a reference of the wrong sign
+    inverts every verdict drawn from it. Recompute it whenever the ensemble
+    changes. A gap further from the reference means the arm found more of the
+    selector's blind spots, not better molecules -- so an arm may "win" on
+    c_mean and still be the worse arm.
+
+  * D_real is NOT a symmetric judge. The discriminator loaded below comes from
+    results/gan/seed0, a pre-contract SELFIES run at kl_coef=0.02, so it was
+    trained to separate real molecules from a SELFIES generator specifically.
+    Scoring a different generator family with it is out of domain: a high
+    D_real may mean only that the family lacks the artifacts this D learned.
+    For a cross-family realism claim, train one discriminator on real versus a
+    mixture of both families instead.
 
     python -m src.aggregate_arms
 """
@@ -89,7 +102,12 @@ def offinstrument() -> None:
 
     bbbp = load_frozen_classifier(dataset="bbbp")
     b3db = load_frozen_classifier(dataset="b3db", models=("gin", "gat", "gine"))
-    disc = Discriminator()
+    # norm="batch" replays the architecture this checkpoint was TRAINED with
+    # rather than imposing today's default -- the same principle
+    # featurize.run_contract applies to classifiers. Without it the load fails
+    # on running_mean against GraphNorm's mean_scale, and this whole function
+    # has been unrunnable since the norm default changed.
+    disc = Discriminator(norm="batch")
     disc.load_state_dict(torch.load(ROOT / "results/gan/seed0/bbbp_disc.pt",
                                     map_location="cpu"))
     disc.eval()
@@ -115,7 +133,7 @@ def offinstrument() -> None:
     print(f"{'REAL drugs':<12}{disc.score(real).mean():>9.3f}{rb:>10.3f}"
           f"{r3:>10.3f}{rb - r3:>+9.3f}{'':>9}")
     print("\nD_real: higher is more real-looking. gap = selector minus unseen")
-    print("judge; real drugs sit negative, so a LARGER gap is worse even when")
+    print("judge; real drugs sit at +0.037, so a gap FURTHER FROM THAT is worse even when")
     print("C(BBBP) is higher -- that is the instrument being gamed, not progress.")
 
 

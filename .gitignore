@@ -14,3 +14,17 @@ __MACOSX/
 # Stray full clone of this repo made while debugging a cold start
 bbb-gnn-permeability/
 .vscode/
+
+# Overnight sweep shard scripts and logs
+logs/
+
+# Rendered molecule atlases: 686 MB of PDFs, regenerable in ~17 min with
+# `python -m src.molecule_atlas --all`. Committing them would roughly quadruple
+# an artifact footprint the README already flags as a problem.
+results/atlas/
+
+# GRPO run checkpoints. Regenerable from the committed warm start, seed and
+# recorded thread count; one 30-run sweep is ~583 MB. The convention is
+# config.json, history.csv and samples/ committed, checkpoints not.
+results/**/*_grpo.pt
+results/**/*_disc.pt

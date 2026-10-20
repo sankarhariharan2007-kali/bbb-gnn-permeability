@@ -1,0 +1,43 @@
+{
+  "model": "gat",
+  "dataset": "b3db",
+  "seed": 0,
+  "n_parameters": 73729,
+  "best_epoch": 17,
+  "epochs_run": 47,
+  "train_seconds": 103.0,
+  "val": {
+    "roc_auc": 0.8382915326612794,
+    "pr_auc": 0.8675582173928097,
+    "accuracy": 0.7615384615384615,
+    "balanced_accuracy": 0.7666144158265993,
+    "f1": 0.7822014051522248,
+    "mcc": 0.5261729965794621,
+    "threshold": 0.6209373474121094,
+    "confusion_matrix": {
+      "tn": 260,
+      "fp": 66,
+      "fn": 120,
+      "tp": 334
+    },
+    "n": 780,
+    "n_positive": 454
+  },
+  "test": {
+    "roc_auc": 0.8822908232118758,
+    "pr_auc": 0.9132784974104,
+    "accuracy": 0.7989756722151088,
+    "balanced_accuracy": 0.8057523616734144,
+    "f1": 0.816374269005848,
+    "mcc": 0.602984000054487,
+    "threshold": 0.6209373474121094,
+    "confusion_matrix": {
+      "tn": 275,
+      "fp": 50,
+      "fn": 107,
+      "tp": 349
+    },
+    "n": 781,
+    "n_positive": 456
+  }
+}

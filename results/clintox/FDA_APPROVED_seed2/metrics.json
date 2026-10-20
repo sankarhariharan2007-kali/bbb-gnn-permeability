@@ -1,0 +1,10 @@
+{
+  "task": "FDA_APPROVED",
+  "seed": 2,
+  "val_auc": 0.8540123456790124,
+  "test_auc": 0.9562043795620437,
+  "n": 1479,
+  "n_pos": 1385,
+  "feature_id": "c0c3bbb8",
+  "n_parameters": 72321
+}

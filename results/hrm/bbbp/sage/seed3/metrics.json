@@ -1,0 +1,55 @@
+{
+  "model": "sage",
+  "family": "hrm",
+  "n_inner": 3,
+  "n_outer": 2,
+  "dataset": "bbbp",
+  "seed": 3,
+  "n_parameters": 170241,
+  "feature_id": "c0c3bbb8",
+  "node_dim": 39,
+  "edge_dim": 7,
+  "hidden": 128,
+  "num_layers": 3,
+  "dropout": 0.3,
+  "heads": 4,
+  "norm": "graph",
+  "split": "murcko+tanimoto@0.6",
+  "best_epoch": 9,
+  "epochs_run": 39,
+  "train_seconds": 103.1,
+  "val": {
+    "roc_auc": 0.843485442907289,
+    "pr_auc": 0.9670706022285745,
+    "accuracy": 0.8469387755102041,
+    "balanced_accuracy": 0.7677059673755937,
+    "f1": 0.9074074074074074,
+    "mcc": 0.47617123054485366,
+    "threshold": 0.6276839375495911,
+    "confusion_matrix": {
+      "tn": 19,
+      "fp": 10,
+      "fn": 20,
+      "tp": 147
+    },
+    "n": 196,
+    "n_positive": 167
+  },
+  "test": {
+    "roc_auc": 0.8602251407129455,
+    "pr_auc": 0.9312688975939254,
+    "accuracy": 0.7918781725888325,
+    "balanced_accuracy": 0.8056597873671044,
+    "f1": 0.856140350877193,
+    "mcc": 0.52200326372808,
+    "threshold": 0.6276839375495911,
+    "confusion_matrix": {
+      "tn": 34,
+      "fp": 7,
+      "fn": 34,
+      "tp": 122
+    },
+    "n": 197,
+    "n_positive": 156
+  }
+}

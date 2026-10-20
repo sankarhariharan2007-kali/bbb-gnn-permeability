@@ -13,7 +13,6 @@ after any subset of the training scripts, not just after everything):
     results/descriptor_baseline_v2_runs.csv        <- descriptor_baseline_v2.py (LightGBM)
     results/edge_ablation/edge_ablation_runs.csv   <- src/train_edge.py (gine/gat_edge/sage_edge)
     results/hybrid/hybrid_runs.csv                 <- src/train_hybrid.py (gcn/sage/gin/gat + descriptors)
-    results/dmpnn/dmpnn_runs.csv                   <- src/train_dmpnn.py
 
     results/edge_ablation/legacy_gine_ablation_results.csv (, if you haven't re-run gine under
     train_edge.py yet) is picked up too, but a row for the same
@@ -42,9 +41,20 @@ SOURCES = [
     ("edge_ablation", ROOT / "results" / "edge_ablation" / "edge_ablation_runs.csv", "gnn"),
     ("gine_ablation_legacy", ROOT / "results" / "edge_ablation" / "legacy_gine_ablation_results.csv", "gnn"),
     ("hybrid", ROOT / "results" / "hybrid" / "hybrid_runs.csv", "gnn"),
-    ("dmpnn", ROOT / "results" / "dmpnn" / "dmpnn_runs.csv", "gnn"),
+    ("hybrid_batch", ROOT / "results" / "hybrid_batch" / "hybrid_batch_runs.csv", "gnn"),
     ("descriptor_gbm", ROOT / "results" / "descriptor_baseline_v2_runs.csv", "descriptor"),
 ]
+
+# The norm each source was trained under. `hybrid` and `hybrid_batch` differ in
+# NOTHING ELSE -- same split, same feature_id, same seeds -- so a table without
+# this column invites reading a norm effect as an architecture effect
+# (limitations 5.0e). `hybrid_batch` holds the best in-distribution numbers and
+# must never be used as a frozen reward: BatchNorm makes C(m) depend on the
+# group a molecule was scored in.
+SOURCE_NORM = {
+    "base_gnn": "graph", "edge_ablation": "graph", "gine_ablation_legacy": "graph",
+    "hybrid": "graph", "hybrid_batch": "batch", "descriptor_gbm": "n/a",
+}
 
 
 def _load_gnn(path: Path, source_label: str) -> pd.DataFrame:
@@ -80,6 +90,7 @@ def load_all() -> pd.DataFrame:
         if label == "gine_ablation_legacy" and seen_gine:
             continue  # edge_ablation's gine rows (if present) supersede this
         df = _load_gnn(path, label) if kind == "gnn" else _load_descriptor(path, label)
+        df["norm"] = SOURCE_NORM.get(label, "?")
         if label == "edge_ablation" and "gine" in df["model"].unique():
             seen_gine = True
         frames.append(df)
@@ -93,13 +104,14 @@ def load_all() -> pd.DataFrame:
 
 def summarize(df: pd.DataFrame) -> pd.DataFrame:
     present_metrics = [m for m in METRICS if m in df.columns]
+    keys = ["dataset", "source", "norm", "model"]
     agg = (
-        df.groupby(["dataset", "source", "model"])[present_metrics]
+        df.groupby(keys)[present_metrics]
         .agg(["mean", "std"])
         .round(4)
     )
     agg.columns = ["_".join(c) for c in agg.columns]
-    n_seeds = df.groupby(["dataset", "source", "model"])["seed"].nunique()
+    n_seeds = df.groupby(keys)["seed"].nunique()
     agg["n_seeds"] = n_seeds
     return agg.reset_index()
 
@@ -110,7 +122,7 @@ def print_table(summary: pd.DataFrame) -> None:
             "test_roc_auc_mean", ascending=False
         )
         print(f"\n{'=' * 100}\n{dataset.upper()}  (ranked by test ROC-AUC, mean +/- std)\n{'=' * 100}")
-        header = f"{'source':<16} {'model':<20} {'n':>2}  {'ROC-AUC':<16} {'PR-AUC':<16} {'bal-acc':<16} {'F1':<16} {'MCC':<16}"
+        header = f"{'source':<16} {'norm':<6} {'model':<20} {'n':>2}  {'ROC-AUC':<16} {'PR-AUC':<16} {'bal-acc':<16} {'F1':<16} {'MCC':<16}"
         print(header)
         for _, r in sub.iterrows():
             def cell(m):
@@ -119,7 +131,7 @@ def print_table(summary: pd.DataFrame) -> None:
                     return f"{'--':<16}"
                 std = 0.0 if pd.isna(std) else std
                 return f"{mean:.4f}+/-{std:.4f}  "
-            print(f"{r['source']:<16} {r['model']:<20} {int(r['n_seeds']):>2}  "
+            print(f"{r['source']:<16} {r.get('norm', '?'):<6} {r['model']:<20} {int(r['n_seeds']):>2}  "
                   f"{cell('test_roc_auc')}{cell('test_pr_auc')}{cell('test_balanced_accuracy')}"
                   f"{cell('test_f1')}{cell('test_mcc')}")
 

@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import torch
 
-from .featurize import smiles_to_graph
+from .featurize import FEATURE_ID, smiles_to_graph
 
 ROOT = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = ROOT / "data" / "processed"
@@ -115,7 +115,15 @@ def build_dataset(name: str, verbose: bool = True) -> tuple[list, dict]:
 
 
 def cache_path(name: str) -> Path:
-    return PROCESSED_DIR / f"{name}.pt"
+    """Cache key includes the featurizer's identity, not just the dataset name.
+
+    The old key was the name alone, so a featurizer change returned stale
+    graphs from disk and nothing raised: you got a freshly trained checkpoint
+    that silently encoded the previous feature layout. Keying on FEATURE_ID
+    means a mismatched cache is not detected, it simply is not found, and
+    `load_dataset` rebuilds. `rebuild=True` discipline stops mattering.
+    """
+    return PROCESSED_DIR / f"{name}-{FEATURE_ID}.pt"
 
 
 def load_dataset(name: str, rebuild: bool = False, verbose: bool = True) -> list:
@@ -127,7 +135,8 @@ def load_dataset(name: str, rebuild: bool = False, verbose: bool = True) -> list
     graphs, report = build_dataset(name, verbose=verbose)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     torch.save(graphs, path)
-    (PROCESSED_DIR / f"{name}_report.json").write_text(json.dumps(report, indent=2))
+    report_path = PROCESSED_DIR / f"{name}-{FEATURE_ID}_report.json"
+    report_path.write_text(json.dumps(report, indent=2))
     return graphs
 
 

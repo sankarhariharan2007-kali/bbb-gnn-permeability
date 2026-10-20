@@ -1,0 +1,9 @@
+,,test_roc_auc,test_roc_auc,test_pr_auc,test_pr_auc,test_balanced_accuracy,test_balanced_accuracy,test_mcc,test_mcc
+,,mean,std,mean,std,mean,std,mean,std
+dataset,model,,,,,,,,
+b3db,gat_edge,0.8747,0.0096,0.9099,0.0182,0.7681,0.0397,0.5517,0.066
+b3db,gine,0.8912,0.0067,0.9184,0.0255,0.7953,0.0196,0.5938,0.0359
+b3db,sage_edge,0.8864,0.0105,0.9144,0.0288,0.7677,0.0259,0.5569,0.0222
+bbbp,gat_edge,0.9367,0.0225,0.9761,0.0089,0.866,0.0293,0.6761,0.0754
+bbbp,gine,0.9399,0.002,0.9747,0.0041,0.8638,0.0062,0.6676,0.0106
+bbbp,sage_edge,0.9277,0.0268,0.9701,0.0133,0.8344,0.0301,0.6255,0.0748

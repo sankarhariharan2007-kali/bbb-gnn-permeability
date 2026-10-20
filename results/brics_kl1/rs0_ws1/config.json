@@ -1,0 +1,51 @@
+{
+ "feature_id": "c0c3bbb8",
+ "dataset": "bbbp",
+ "steps": 250,
+ "group_size": 64,
+ "ppo_epochs": 4,
+ "n_d": 2,
+ "lr_g": 0.0001,
+ "lr_d": 0.0001,
+ "clip_eps": 0.2,
+ "kl_coef": 1.0,
+ "invalid_floor": -2.0,
+ "schedule": "linear",
+ "k_anneal": 100,
+ "max_len": 72,
+ "seed": 0,
+ "c_transform": "raw",
+ "w_tox": 0.0,
+ "min_heavy_atoms": 10,
+ "min_mw": 0.0,
+ "aggregate": "linear",
+ "alert_lambda": 0.0,
+ "w_alert": 0.0,
+ "drop": [],
+ "warm_start": "results\\generator\\bbbp_brics_mle_s1.pt",
+ "generator": "brics",
+ "reward_seed": 0,
+ "ent_coef": 0.0,
+ "threads_requested": 6,
+ "torch_num_threads": 6,
+ "omp_num_threads": null,
+ "mkl_num_threads": null,
+ "reference_stats": {
+  "tpsa": [
+   70.72849926434527,
+   58.454234976295155
+  ],
+  "hba": [
+   4.442864149092692,
+   3.198906574575726
+  ],
+  "logp": [
+   2.3180524374693494,
+   2.0923302354563686
+  ],
+  "mw": [
+   344.5362898479647,
+   150.61715570820311
+  ]
+ }
+}

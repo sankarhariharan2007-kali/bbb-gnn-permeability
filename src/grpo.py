@@ -91,6 +91,7 @@ def clipped_loss(
     clip_eps: float = 0.2,
     logp_ref: torch.Tensor | None = None,
     kl_coef: float = 0.0,
+    kl_clip: float = 10.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Eq. 7 plus the optional reference-policy KL penalty from the diagram.
 
@@ -144,6 +145,19 @@ def clipped_loss(
         kl_term = _masked_mean(kl, mask)
         loss = loss + kl_coef * kl_term
         stats["kl"] = kl_term.item()
+        # k3 is exp(d), so one action pi_ref assigns ~zero probability dominates
+        # the mean: a 10-nat disagreement alone contributes exp(10) ~ 22026, and
+        # a 6051-way action space over ~5.5 decisions both permits that and
+        # averages it over 5.5 positions rather than 38.3. That is a symptom --
+        # the policy reached an action the reference had essentially ruled out,
+        # which is expected when the action space was rebuilt under it -- not a
+        # bug in the estimator.
+        #
+        # So report a bounded companion rather than switching: the LOSS still
+        # uses unclipped k3, which keeps every committed GRPO run comparable,
+        # and `kl_clipped` says how much of `kl` was a single tail event.
+        dc = d.clamp(min=-kl_clip, max=kl_clip)
+        stats["kl_clipped"] = _masked_mean(torch.exp(dc) - dc - 1.0, mask).item()
 
     return loss, stats
 

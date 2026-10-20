@@ -19,7 +19,7 @@ source that fails that check is reported and excluded rather than silently
 pooled.
 
     python -m src.paired_analysis                  # base GNNs, both datasets
-    python -m src.paired_analysis --all-sources    # include hybrid/dmpnn/edge
+    python -m src.paired_analysis --all-sources    # include hybrid/edge
 """
 
 from __future__ import annotations
@@ -47,7 +47,6 @@ def _tcrit(n: int) -> float:
 SOURCES = {
     "base_gnn": RESULTS / "all_runs.csv",
     "hybrid": RESULTS / "hybrid" / "hybrid_runs.csv",
-    "dmpnn": RESULTS / "dmpnn" / "dmpnn_runs.csv",
     "edge_ablation": RESULTS / "edge_ablation" / "edge_ablation_runs.csv",
 }
 
@@ -174,7 +173,7 @@ def main(all_sources: bool, metric: str) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--all-sources", action="store_true",
-                    help="include hybrid/dmpnn/edge_ablation, not just base GNNs")
+                    help="include hybrid/edge_ablation, not just base GNNs")
     ap.add_argument("--metric", default="test_roc_auc")
     args = ap.parse_args()
     main(args.all_sources, args.metric)

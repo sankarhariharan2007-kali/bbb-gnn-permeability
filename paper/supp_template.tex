@@ -1,0 +1,182 @@
+\documentclass[10pt,letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage[scaled=0.9]{helvet}
+\usepackage{courier}
+\usepackage[protrusion=false,expansion=false]{microtype}
+\usepackage{placeins}
+\usepackage{amsmath,amssymb,booktabs,array,graphicx,xcolor,enumitem}
+\usepackage[font=normalsize,labelfont=bf,skip=4pt]{caption}
+\usepackage[colorlinks,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\renewcommand{\thetable}{S\arabic{table}}
+\newcommand{\sd}{\operatorname{sd}}
+\newcommand{\REPO}{\url{https://github.com/JSR996/bbb-gnn-permeability}}
+\setlength{\tabcolsep}{4pt}\setlength{\parskip}{3pt}\setlist{nosep}
+
+\title{Supplementary Material\\[2pt]\large Group-Relative Reinforcement Learning for Blood--Brain-Barrier Molecule Design:\\ What Restrains Reward Hacking, and What Does Not}
+\author{S Hariharan \and J Shrenik Reddy \and Ansa N}
+\date{}
+\begin{document}
+\sloppy
+\maketitle
+\noindent All tables below support the main paper. Code, result tables and run histories: \REPO{} (branch \texttt{main}, tag \texttt{recomb2027-final}; this document's sources are in \path{paper/}). Tables S1, S5, S6, S7 and S10 are generated directly from the repository's CSV/JSON files by \texttt{make\_supp.py}; the others are copied from the repository's documentation (\path{documentation/*.md}) at the same commit.
+
+\section{Classifier}
+\begin{table}[!htbp]\centering\small
+\caption{Test ROC-AUC per model (mean $\pm$ sd over 10 seeds; each seed a different scaffold split). Wang ($n=55$) and Adenot ($n=59$) are scaffold-disjoint external holdouts scored by models trained on the indicated corpus. LightGBM uses the same 8 descriptors as the hybrid models.}
+\label{tab:s1}
+\resizebox{\linewidth}{!}{%
+@@S1@@}
+\end{table}
+
+\begin{table}[!htbp]\centering
+\caption{Component effects on ROC-AUC, pooled over 4 operators $\times$ 2 datasets $\times$ 10 seeds, paired (full table behind Figure~3 of the paper).}
+\label{tab:s2}
+\begin{tabular}{@{}lccl@{}}\toprule
+component & $\Delta$ ROC-AUC & SEM & verdict\\\midrule
+wide atom-level readout (shared skeleton) & $+0.1304$ & -- & dominant factor\\
+8 RDKit descriptors & $+0.0099$ & 0.0019 & significant\\
+BatchNorm over GraphNorm & $+0.0074$ & 0.0023 & significant\\
+descriptors + BatchNorm together & $+0.0195$ & 0.0024 & significant, additive\\
+BRICS motif graph, intra + atom readout & $+0.0064$ & 0.0059 & within noise\\
+virtual node & $+0.0003$ & 0.0023 & within noise\\
+BRICS motif graph, added on top & $-0.0042$ & 0.0026 & within noise\\
+edge (bond) features & $\approx0$ & -- & within noise\\
+long-range atom connectivity & $-0.0194$ & -- & slightly harmful\\
+HRM two-timescale recurrence & $-0.0381$ & 0.0059 & significant, worse\\
+BRICS motif graph replacing atoms & $-0.1161$ & 0.0107 & significant, much worse\\\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!htbp]\centering
+\caption{Calibration of the reward-family classifier (hybrid + GraphNorm test folds, 10 seeds pooled, $n=1970$): Brier $0.1025$, ECE $0.0741$. Every bin is underconfident, but observed rate is monotone in the score, so ranking is preserved. On Wang: Brier $0.1216$, ECE $0.0944$ with $4$--$7$ molecules per bin (shape not characterizable).}
+\label{tab:s7}
+\begin{tabular}{@{}lcccc@{}}\toprule
+predicted bin & $n$ & mean predicted & observed rate & gap\\\midrule
+0.0--0.1 & 234 & 0.048 & 0.132 & $+0.084$\\
+0.2--0.3 & 60 & 0.252 & 0.600 & $+0.348$\\
+0.4--0.5 & 66 & 0.447 & 0.682 & $+0.234$\\
+0.7--0.8 & 92 & 0.756 & 0.880 & $+0.124$\\
+0.9--1.0 & 957 & 0.967 & 0.975 & $+0.008$\\\bottomrule
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+\section{Generator: anchors, ablation, screening}
+\begin{table}[!htbp]\centering\small
+\caption{Anchor interventions beyond the KL sweep of the main text.}
+\label{tab:s3}
+\begin{tabular}{@{}p{3.6cm}p{9.3cm}c@{}}\toprule
+intervention & measured & seeds\\\midrule
+size gate ($\ge10$ heavy atoms), KL 0.3 & scaffold fraction $0.769\pm0.027\to0.828\pm0.004$; undersized molecules $10.4\%\to2.1\%$; cost $0.004$ in mean $C$ & 3\\
+logit transform of $C$ & scaffold fraction $0.741\to0.349$; policy converged on CCl$_4$ and freon-12 (CCl$_4$ reward $2.280$, caffeine $2.063$) & 1\\
+invalid floor $f=-1.0$ & scaffold $0.834$ against $0.887$ at $f=-2$; undersized molecules more than double & 1\\
+invalid floor $f=-4.0$ & scaffold $0.881$ (no change) & 1\\
+BRICS KL 3.0 & scaffold $0.906$ at $C=0.781$ (KL 1.0 is the knee, not an optimum) & 1\\\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!htbp]\centering\small
+\caption{Gate arm versus arm A on both corpora, computed from the four \texttt{screened.csv} files of arms A and gate on each corpus. Survivors pass the screen and are not in the (flattened) training corpus; corpus covered = distinct training molecules reproduced / corpus size.}
+\label{tab:s4}
+\resizebox{\linewidth}{!}{%
+@@S4@@}
+\end{table}
+
+\begin{table}[!htbp]\centering\small
+\caption{Term ablation per seed (200 steps, KL 0.02; ``none'' is the paired baseline). $\Delta$ scaffold is relative to the same-seed baseline. The collapse screen is scaffold fraction $<0.30$ (arbitrary).}
+\label{tab:s5}
+@@S5@@
+\end{table}
+
+\begin{table}[!htbp]\centering\small
+\caption{Screening verdict by arm for every pooled generated molecule (mean reward-ensemble $C$). Undersized molecules score highest in every arm.}
+\label{tab:s6}
+\resizebox{\linewidth}{!}{%
+@@S6@@}
+\end{table}
+
+\begin{table}[!htbp]\centering
+\caption{Dominance-and-crowding (NSGA-II-style) reduction versus the linear sum; SELFIES, KL 0.3, 200 steps, four seeds, paired. ``seeds'' = seeds improved over linear, out of 4. The composite arm keeps the rank order but borrows the linear reward's scale.}
+\label{tab:s8}
+\begin{tabular}{@{}lccccc@{}}\toprule
+metric & linear & NSGA-II & seeds & composite & seeds\\\midrule
+TPSA spread ratio & 0.410 & 0.524 & 4/4 & 0.519 & 4/4\\
+log\,$P$ spread ratio & 0.683 & 0.784 & 4/4 & 0.785 & 4/4\\
+MW spread ratio & 0.481 & 0.585 & 4/4 & 0.602 & 4/4\\
+Tanimoto distance & 0.887 & 0.899 & 4/4 & 0.899 & 4/4\\
+KL to reference & 0.066 & 0.047 & 4/4 & 0.048 & 4/4\\
+mean $C$ & 0.925 & 0.891 & 0/4 & 0.894 & 0/4\\
+scaffold fraction & 0.811 & 0.780 & 1/4 & 0.785 & 1/4\\
+valid fraction & 0.963 & 0.953 & 1/4 & 0.954 & 2/4\\\midrule
+$C_{\text{BBBP}}$ & 0.924 & 0.891 & & 0.894 & \\
+$C_{\text{B3DB}}$ & 0.888 & 0.849 & & 0.848 & \\
+instrument gap & $+0.036$ & $+0.042$ & worse 3/4 & $+0.046$ & worse 4/4\\\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!htbp]\centering
+\caption{One 1000-step run at the settled configuration (KL 1.0, reward seed 0, policy seed 0); 100-step window means. The apparent early decay is a settling transient: regressing scaffold fraction on step gives slope $-2.61\times10^{-5}$ ($p=0.001$) from step 250 but $-1.47\times10^{-5}$ ($p=0.18$) from 400, $-1.48\times10^{-5}$ ($p=0.30$) from 500 and $-1.51\times10^{-5}$ ($p=0.62$) from 700. One seed, one configuration; any sustained decay is slower than about $0.024$ per 1000 steps.}
+\label{tab:s9}
+\begin{tabular}{@{}lccccc@{}}\toprule
+window & scaffold & unique & $C$ & reward & sanitization\\\midrule
+0--99 & 0.835 & 0.985 & 0.839 & 1.702 & 0.9998\\
+200--299 & 0.873 & 0.984 & 0.878 & 2.141 & 0.9997\\
+400--499 & 0.859 & 0.982 & 0.894 & 2.171 & 0.9997\\
+600--699 & 0.861 & 0.984 & 0.901 & 2.195 & 1.0000\\
+800--899 & 0.852 & 0.979 & 0.904 & 2.197 & 1.0000\\
+900--999 & 0.853 & 0.979 & 0.905 & 2.198 & 0.9998\\\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!htbp]\centering\small
+\caption{Settled generator configuration, read from \texttt{results/brics\_cgate/pseed0/config.json}. The reward weights are annealed linearly over \texttt{k\_anneal} steps from $(D,C,Q,S)=(1.0,0.2,0.5,0.5)$ to $(0.3,1.5,0.5,0.5)$; with \texttt{drop=['C']} the $C$ term is replaced by the gate \texttt{min\_c}.}
+\label{tab:s10}
+@@S10@@
+\end{table}
+
+\FloatBarrier
+\section{Reproduction}
+From a fresh clone of the repository (branch \texttt{main}; see \texttt{CLAUDE.md} and \texttt{documentation/full\_pipeline.md}):
+\begin{verbatim}
+pip install -r requirements.txt     # requirements.lock pins versions
+python -m src.pipeline --list       # what would run / skip
+python -m src.pipeline              # classifier -> reward -> generator
+                                    #   -> screen -> report
+python -m src.train_hybrid --run-all --norm batch
+                                    # reported classifier
+python -m src.reward                # reward gate; if it fails, stop
+python -m src.brics_generator --pretrain   # MLE warm start (required)
+python -m src.train_gan --generator brics --steps 250 --threads 6 \
+    --seed 0 --reward-seed 0 --kl-coef 1.0 --drop C --min-c 0.615 \
+    --warm-start results/generator/bbbp_brics_pretrained.pt \
+    --out-dir results/brics_cgate/pseed0
+python -m src.postfilter results/brics_cgate/* --from-step 150 \
+    --rank-by mpo_gated --out results/candidates_mpo/brics_cgate
+python paper/make_figs.py
+python paper/make_supp.py
+python paper/scaffold_overlap.py
+\end{verbatim}
+\texttt{--kl-coef 1.0} is mandatory for BRICS (the default $0.3$ was validated for SELFIES only); runs are comparable only at a fixed thread count.
+
+\section{Corrections made to earlier claims}
+The repository records the following hypotheses that measurement overturned; the first group is listed in the repository's \path{limitations.md}, the last item concerns this manuscript.
+\begin{enumerate}[leftmargin=2.4em]
+\item ``195/199 distinct samples, so no mode collapse'': wrong metric; string uniqueness is blind for about 100 steps.
+\item ``The collapse is property-space, with only mild scaffold narrowing'': true at step 40, over-generalized; at 200 steps scaffold collapse is larger.
+\item ``The reward uses the wrong classifier'': overclaimed; no measurable out-of-distribution difference.
+\item ``Off-distribution the ensemble will disagree'': backwards; it agrees more.
+\item ``Architecture differences are hopeless at 3 seeds'': used marginal sds; the design is paired.
+\item ``The reward has gone blind'': overstated; the information is there on a scale that could not show it.
+\item Descriptor distance, applicability domain and Tox21 were each expected to catch the solvents; none does.
+\item ``The alert penalty makes the generator cleaner than approved drugs'': true only on the instrument it was trained against (BRENK: $0.406$ against drugs' $0.350$).
+\item BRICS ``loses diversity because of its compact action space'': retracted; the KL coefficient did not transfer ($10.7\times$ the KL).
+\item The three-seed GAT-over-GIN effect did not replicate at ten seeds ($+0.0109$, CI $[-0.0057,+0.0275]$); the three-seed scaffold mean ($0.864$) was one unlucky draw ($0.854$ at ten).
+\item A trioxide said to pass the screen did not (arm A's pool only); a ring-strain pattern that flagged 138 survivors was a labelling error and was removed.
+\item \emph{This manuscript:} Table~2 standard deviations for hybrid-BatchNorm ($0.032$, $0.047$) and the 8-descriptor LightGBM value on B3DB ($0.852\pm0.040$) were corrected against the result CSVs (the repository README table carries the earlier values); the claim that no calibration analysis exists was replaced by the measurement above; ``36.8\% share a training scaffold'' referred to an older two-run survivor set and was recomputed ($34.8\%$ arm A, $23.5\%$ gate arm, \texttt{scaffold\_overlap.py}).
+\end{enumerate}
+
+\section{Files in the repository's \texttt{paper/} directory}
+\path{recomb2027_main.pdf} (the paper) and \path{supp.tex} (source of this supplement), \path{figs/} (all figures), \path{make_figs.py} (all figures), \path{make_supp.py} (this document's data tables), \path{scaffold_overlap.py} (scaffold-overlap statistics), and \path{data/seed0_history.csv}, \path{data/seed1_history.csv}, \path{data/seed2_history.csv}: the original unconstrained-baseline histories from commit \texttt{e0e5da8b}, used for the collapse figure because \path{results/gan/seed*/history.csv} on the branch were later overwritten by a regenerated run.
+\end{document}

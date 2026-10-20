@@ -36,11 +36,27 @@ from .evaluate import best_threshold, compute_metrics
 from .hybrid_features import compute_descriptor_matrix, standardize_with_train_stats
 from .models import MODELS
 from .models_hybrid import build_hybrid_model, count_parameters
-from .split import check_split, scaffold_split
+from .featurize import EDGE_DIM, FEATURE_ID, NODE_DIM
+from .split import (SPLIT_ID, SPLIT_ID_MURCKO_ONLY, check_split,
+                    scaffold_split)
 
 RESULTS_DIR = ROOT / "results" / "hybrid"
-SEEDS = [0, 1, 2]
+BATCH_RESULTS_DIR = ROOT / "results" / "hybrid_batch"
+SEEDS = list(range(10))
 DATASET_NAMES = ["bbbp", "b3db"]
+
+
+def results_dir(norm: str) -> Path:
+    """Where an arm's runs live. The two hybrid arms differ ONLY in the norm.
+
+    `hybrid_batch` holds the repo's best in-distribution numbers (limitations
+    5.0e) and for a long time no committed command could regenerate it -- it was
+    produced ad hoc, while `eval_external_holdout` read it. Keeping the two
+    trees apart is deliberate: the BatchNorm arm must never be loaded as a
+    frozen reward, because `C(m)` would then depend on the GRPO group it was
+    scored in.
+    """
+    return BATCH_RESULTS_DIR if norm == "batch" else RESULTS_DIR
 
 
 def set_seed(seed: int) -> None:
@@ -74,6 +90,8 @@ def train_hybrid_one(
     num_layers: int = 3,
     dropout: float = 0.3,
     heads: int = 4,
+    norm: str = "graph",
+    cluster_acyclic: bool = True,
     device: str = "cpu",
     out_dir: Path | None = None,
     verbose: bool = True,
@@ -85,8 +103,10 @@ def train_hybrid_one(
     smiles = [g.smiles for g in graphs]
     labels = [int(g.y.item()) for g in graphs]
 
-    train_idx, val_idx, test_idx = scaffold_split(smiles, seed=seed, verbose=False)
-    check_split(smiles, train_idx, val_idx, test_idx, labels)
+    train_idx, val_idx, test_idx = scaffold_split(
+        smiles, seed=seed, verbose=False, cluster_acyclic=cluster_acyclic)
+    check_split(smiles, train_idx, val_idx, test_idx, labels,
+                cluster_acyclic=cluster_acyclic)
 
     # Descriptors computed once for the whole dataset, then standardized using
     # TRAIN-fold statistics only -- val/test never influence the scaling.
@@ -106,7 +126,8 @@ def train_hybrid_one(
     test_loader = DataLoader(test_set, batch_size=256)
 
     model = build_hybrid_model(model_name, hidden=hidden, num_layers=num_layers,
-                                dropout=dropout, heads=heads).to(dev)
+                                dropout=dropout, heads=heads,
+                               norm=norm).to(dev)
 
     n_pos = sum(labels[i] for i in train_idx)
     n_neg = len(train_idx) - n_pos
@@ -171,6 +192,17 @@ def train_hybrid_one(
         "dataset": dataset_name,
         "seed": seed,
         "n_parameters": count_parameters(model),
+        # The run contract -- see train.py. Validated and replayed by
+        # featurize.run_contract when a checkpoint is reloaded as a reward.
+        "feature_id": FEATURE_ID,
+        "node_dim": NODE_DIM,
+        "edge_dim": EDGE_DIM,
+        "hidden": hidden,
+        "num_layers": num_layers,
+        "dropout": dropout,
+        "heads": heads,
+        "norm": norm,
+        "split": SPLIT_ID if cluster_acyclic else SPLIT_ID_MURCKO_ONLY,
         "best_epoch": best_epoch,
         "epochs_run": len(history),
         "train_seconds": round(time.time() - start, 1),
@@ -179,7 +211,7 @@ def train_hybrid_one(
     }
 
     if out_dir is None:
-        out_dir = RESULTS_DIR / dataset_name / model_name / f"seed{seed}"
+        out_dir = results_dir(norm) / dataset_name / model_name / f"seed{seed}"
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "metrics.json").write_text(json.dumps(result, indent=2))
     torch.save(best_state, out_dir / "model.pt")
@@ -200,9 +232,9 @@ def train_hybrid_one(
     return result
 
 
-def collect() -> pd.DataFrame:
+def collect(root: Path | None = None) -> pd.DataFrame:
     rows = []
-    for path in sorted(RESULTS_DIR.glob("*/*/seed*/metrics.json")):
+    for path in sorted((root or RESULTS_DIR).glob("*/*/seed*/metrics.json")):
         r = json.loads(path.read_text())
         rows.append({
             "dataset": r["dataset"], "model": r["model"], "seed": r["seed"],
@@ -215,33 +247,41 @@ def collect() -> pd.DataFrame:
 
 
 def run_all(models=MODELS, datasets=DATASET_NAMES, seeds=SEEDS,
-            epochs=200, patience=30, device="cpu") -> pd.DataFrame:
+            epochs=200, patience=30, device="cpu", norm="graph",
+            force=False) -> pd.DataFrame:
     for name in datasets:
         load_dataset(name, verbose=False)
 
+    root = results_dir(norm)
+    arm = root.name
     total = len(datasets) * len(models) * len(seeds)
     done, failed = 0, []
     for dataset in datasets:
         for model in models:
             for seed in seeds:
                 done += 1
-                print(f"\n[{done}/{total}] hybrid {dataset}/{model}/seed{seed}")
+                out_dir = root / dataset / model / f"seed{seed}"
+                if (out_dir / "metrics.json").exists() and not force:
+                    print(f"[{done}/{total}] {arm} {dataset}/{model}/seed{seed} "
+                          f"-- already done, skipping")
+                    continue
+                print(f"\n[{done}/{total}] {arm} {dataset}/{model}/seed{seed}")
                 try:
                     train_hybrid_one(model_name=model, dataset_name=dataset, seed=seed,
                                       epochs=epochs, patience=patience, device=device,
-                                      verbose=True)
+                                      norm=norm, verbose=True)
                 except Exception:
                     print(f"    FAILED:\n{traceback.format_exc()}")
                     failed.append((dataset, model, seed))
 
-    df = collect()
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(RESULTS_DIR / "hybrid_runs.csv", index=False)
+    df = collect(root)
+    root.mkdir(parents=True, exist_ok=True)
+    df.to_csv(root / f"{arm}_runs.csv", index=False)
     metrics = ["test_roc_auc", "test_pr_auc", "test_balanced_accuracy", "test_f1", "test_mcc"]
     df.groupby(["dataset", "model"])[metrics].agg(["mean", "std"]).round(4).to_csv(
-        RESULTS_DIR / "hybrid_summary.csv"
+        root / f"{arm}_summary.csv"
     )
-    print(f"\nwrote {RESULTS_DIR / 'hybrid_runs.csv'} ({len(df)} runs)")
+    print(f"\nwrote {root / f'{arm}_runs.csv'} ({len(df)} runs)")
     if failed:
         print(f"FAILED runs: {failed}")
     return df
@@ -256,18 +296,33 @@ def main() -> None:
     p.add_argument("--epochs", type=int, default=200)
     p.add_argument("--patience", type=int, default=30)
     p.add_argument("--device", default="cpu")
+    p.add_argument("--norm", default="graph", choices=["layer", "graph", "batch"],
+                   help="graph (default) is batch-independent and is what a "
+                        "frozen reward must use. batch scores higher and writes "
+                        "to results/hybrid_batch (limitations 5.0e)")
+    p.add_argument("--force", action="store_true",
+                   help="retrain runs that already have metrics.json")
+    p.add_argument("--threads", type=int, default=None,
+                   help="torch.set_num_threads; authoritative where "
+                        "OMP_NUM_THREADS is not (CLAUDE.md). Pinned because "
+                        "OpenMP changes float reduction order.")
     args = p.parse_args()
+    if args.threads is not None:
+        torch.set_num_threads(args.threads)
+
 
     if args.run_all:
-        run_all(epochs=args.epochs, patience=args.patience, device=args.device)
+        run_all(epochs=args.epochs, patience=args.patience, device=args.device,
+                norm=args.norm, force=args.force)
         return
 
     if not args.model or not args.dataset:
         p.error("either --run-all, or both --model and --dataset")
 
-    print(f"[hybrid {args.dataset}/{args.model}/seed{args.seed}]")
+    print(f"[{results_dir(args.norm).name} {args.dataset}/{args.model}/seed{args.seed}]")
     train_hybrid_one(model_name=args.model, dataset_name=args.dataset, seed=args.seed,
-                      epochs=args.epochs, patience=args.patience, device=args.device)
+                      epochs=args.epochs, patience=args.patience, device=args.device,
+                      norm=args.norm)
 
 
 if __name__ == "__main__":

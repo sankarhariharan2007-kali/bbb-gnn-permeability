@@ -21,7 +21,7 @@ from rdkit import Chem, RDLogger
 from rdkit.Chem import QED, Descriptors, RDConfig
 from torch_geometric.data import Batch
 
-from .featurize import smiles_to_graph
+from .featurize import run_contract, smiles_to_graph
 from .pareto import reduce_objectives
 from .models import build_model
 from .models_edge import EDGE_MODELS, build_edge_model
@@ -66,10 +66,26 @@ def load_frozen_classifier(
 ):
     """Return C(mols) -> np.ndarray of mean P(permeable), frozen and stationary.
 
-    eval() is load-bearing, not hygiene: the classifier uses BatchNorm1d, so in
-    train mode C(m) would depend on which other molecules share the batch. The
-    reward would then vary with group composition and the "frozen C is
-    stationary in k" premise of Section 3.1 would be quietly false.
+    eval() is still load-bearing, for a smaller reason than it used to be. The
+    classifier now defaults to GraphNorm, which is batch-independent by
+    construction, so C(m) no longer varies with group composition even in train
+    mode. `nn.Dropout` does, so the forward pass is still stochastic without
+    eval() and the "frozen C is stationary in k" premise of Section 3.1 would
+    still be false. The batch-invariance assertion in _self_check stays: it is
+    cheap, and it is what catches a regression back to BatchNorm.
+
+    THE ENSEMBLE IS VERIFIED HERE, NOT IN THE SELF-CHECK. The fold-identity
+    assertion used to live only in `_self_check`, hardcoded to
+    ("gin","gat","gine") at bbbp seed 0 -- so every other model set, seed or
+    results_dir was combined with nothing checked at all. It now runs on every
+    load, which is the only version of the guarantee worth having: two machines
+    pulling the same branch can otherwise assemble an ensemble out of a
+    half-updated checkout and nothing complains.
+
+    Architecture is replayed from each run's metrics.json rather than taken
+    from build_model's defaults. Those defaults were the de-facto contract --
+    no caller ever passed in_dim -- so changing one invalidated every committed
+    checkpoint and surfaced as `size mismatch for convs.0` far from the cause.
 
     Checkpoints are combined within a single seed only -- each seed defines a
     different scaffold split (README), so mixing seeds mixes models that saw
@@ -77,17 +93,53 @@ def load_frozen_classifier(
     """
     root = results_dir or RESULTS_DIR
     nets = []
+    folds: dict[str, np.ndarray] = {}
+    norms: dict[str, str] = {}
     for name in models:
         ckpt = _checkpoint(root, dataset, name, seed)
+        # Raises if the run was trained under a different featurizer, and
+        # returns the architecture it was trained with.
+        arch = run_contract(ckpt.parent)
+        norms[name] = arch.get("norm")
+        folds[name] = np.load(ckpt.parent / "test_preds.npz")["idx"]
         # Edge-aware operators carry a different skeleton class, so they must
         # be rebuilt by the module that trained them or the state_dict is
         # being loaded into the wrong architecture.
         builder = build_edge_model if name in EDGE_MODELS else build_model
-        net = builder(name).to(device)
+        net = builder(name, **arch).to(device)
         net.load_state_dict(torch.load(ckpt, map_location=device))
         net.eval()
         net.requires_grad_(False)
         nets.append(net)
+
+    # Same fold. The seed reseeds the scaffold split, so members trained under
+    # different split settings -- or pulled from a half-updated checkout --
+    # have each other's held-out molecules in their training sets, and the
+    # ensemble's predictions are leaked rather than merely worse.
+    first = models[0]
+    for name in models:
+        if not np.array_equal(folds[name], folds[first]):
+            # Mismatched folds are usually the SAME SIZE with different
+            # contents, so report the overlap -- a size comparison reads as
+            # "197 vs 197" and tells the reader nothing.
+            shared = len(np.intersect1d(folds[name], folds[first]))
+            raise RuntimeError(
+                f"ENSEMBLE LEAK: {name} and {first} (dataset={dataset}, "
+                f"seed={seed}) were trained on different folds -- "
+                f"{shared}/{len(folds[first])} test molecules in common. "
+                f"Members must share a split, or each has trained on the "
+                f"others' held-out molecules."
+            )
+
+    # Same normalization. Not a leak, but a mixed-norm ensemble is never
+    # intended -- it means a checkout caught mid-update, and the fold check
+    # above cannot see it because the split is unchanged.
+    if len(set(norms.values())) > 1:
+        raise RuntimeError(
+            f"mixed-norm ensemble: {norms}. These checkpoints come from "
+            f"different runs of the project; re-pull or retrain so every "
+            f"member shares a norm."
+        )
 
     @torch.no_grad()
     def classify(mols: list[Chem.Mol]) -> np.ndarray:
@@ -101,6 +153,113 @@ def load_frozen_classifier(
     return classify
 
 
+def load_frozen_hybrid(
+    dataset: str = "bbbp",
+    models: tuple[str, ...] = ("gcn", "sage", "gin", "gat"),
+    seed: int = 0,
+    device: str = "cpu",
+):
+    """The OTHER reward: hybrid + BatchNorm, for the matched-reward comparison.
+
+    WHY THIS EXISTS. The default reward is gin/gat/gine under GraphNorm, with
+    no descriptors. Training against a second, materially different classifier
+    answers a question neither one can answer alone: does the generator's
+    output depend on which judge it was optimized against? Agreement means the
+    permeability signal is robust; divergence means each reward is being
+    exploited on its own terms. See documentation/full_pipeline.md.
+
+    All four architectures are used, deliberately without selection -- picking
+    the three best hybrid_batch cells off a test table is the exact move the
+    reward-seed note warns against.
+
+    BATCHNORM IS THE HAZARD THIS REINTRODUCES, so it is asserted rather than
+    assumed. In train mode BatchNorm1d takes its statistics from the batch, so
+    C(m) would depend on the GRPO group m was sampled with and the reward would
+    stop being a function of the molecule (3.97e-02 drift measured in
+    limitations 5.0, against 6.0e-08 for GraphNorm). In `.eval()` it uses
+    running statistics instead, and the check below proves that holds for
+    these exact checkpoints before any of them is handed to a training loop.
+    The default reward does not need this check, which is why GraphNorm
+    remains the right default: it removes the failure mode instead of guarding
+    it.
+    """
+    from .hybrid_features import compute_descriptors
+    from .models_hybrid import build_hybrid_model
+
+    root = RESULTS_DIR / "hybrid_batch"
+    nets, scalings = [], []
+    folds: dict[str, np.ndarray] = {}
+    norms: dict[str, str] = {}
+    for name in models:
+        d = root / dataset / name / f"seed{seed}"
+        ckpt = d / "model.pt"
+        if not ckpt.exists():
+            raise FileNotFoundError(
+                f"{ckpt} missing. Train it with "
+                f"`python -m src.train_hybrid --run-all --norm batch`."
+            )
+        arch = run_contract(d)
+        norms[name] = arch.get("norm")
+        folds[name] = np.load(d / "test_preds.npz")["idx"]
+        net = build_hybrid_model(name, **arch).to(device)
+        net.load_state_dict(torch.load(ckpt, map_location=device))
+        net.eval()
+        net.requires_grad_(False)
+        nets.append(net)
+        sc = np.load(d / "descriptor_scaling.npz")
+        scalings.append((sc["mu"], sc["sigma"]))
+
+    first = models[0]
+    for name in models:
+        if not np.array_equal(folds[name], folds[first]):
+            shared = len(np.intersect1d(folds[name], folds[first]))
+            raise RuntimeError(
+                f"ENSEMBLE LEAK: {name} and {first} (hybrid_batch, "
+                f"dataset={dataset}, seed={seed}) were trained on different "
+                f"folds -- {shared}/{len(folds[first])} test molecules shared."
+            )
+    if set(norms.values()) != {"batch"}:
+        raise RuntimeError(
+            f"load_frozen_hybrid expects the BatchNorm arm, got norms={norms}. "
+            f"results/hybrid_batch must hold norm=batch runs only."
+        )
+
+    @torch.no_grad()
+    def classify(mols: list[Chem.Mol]) -> np.ndarray:
+        if not mols:
+            return np.zeros(0, dtype=float)
+        smis = [Chem.MolToSmiles(m) for m in mols]
+        graphs = [smiles_to_graph(s) for s in smis]
+        raw = np.array([compute_descriptors(s) for s in smis], dtype=np.float64)
+        probs = []
+        for net, (mu, sigma) in zip(nets, scalings):
+            # Each member standardizes with ITS OWN train-fold mu/sigma. Never
+            # statistics refit on the molecules being scored: that would let
+            # the generated distribution move its own reward.
+            std = (raw - mu) / sigma
+            for g, row in zip(graphs, std):
+                g.descriptors = torch.tensor(row, dtype=torch.float).unsqueeze(0)
+            batch = Batch.from_data_list(graphs).to(device)
+            probs.append(torch.sigmoid(net(batch)))
+        return torch.stack(probs).mean(0).cpu().numpy()
+
+    # Prove batch-independence on these checkpoints before they can be used.
+    probe = [Chem.MolFromSmiles(s) for s in
+             ("CC(=O)Oc1ccccc1C(=O)O", "Cn1cnc2c1c(=O)n(C)c(=O)n2C",
+              "ClC(Cl)(Cl)Cl", "c1ccc2c(c1)ccc1ccccc12")]
+    alone = np.array([classify([m])[0] for m in probe])
+    crowded = classify(probe)
+    drift = float(np.abs(alone - crowded).max())
+    if drift > 1e-5:
+        raise RuntimeError(
+            f"hybrid_batch reward is batch-DEPENDENT: C(m) drifts {drift:.2e} "
+            f"between scoring a molecule alone and in a group of four. eval() "
+            f"is not in force, so the reward is not a function of the molecule."
+        )
+
+    return classify
+
+
 def sanitizable(smiles: str) -> Chem.Mol | None:
     """Chemical validity, i.e. RDKit sanitization -- NOT grammar validity.
 
@@ -108,14 +267,26 @@ def sanitizable(smiles: str) -> Chem.Mol | None:
     generator's syntactic guarantee says nothing about whether the result
     survives sanitization. These are different failure modes; only this one
     gates the reward.
+
+    A dummy atom also fails here. `[3*]C(C)=O` sanitizes perfectly well, so a
+    BRICS fragment with an unfilled attachment point would otherwise be counted
+    valid and scored -- an open valence is not a molecule, and the classifier
+    has never seen one. This is the same guard as in `featurize.smiles_to_graph`
+    and it is deliberately in both: this one decides `valid`, that one decides
+    what reaches the network.
     """
     mol = Chem.MolFromSmiles(smiles)  # returns None iff sanitization fails
-    return None if mol is None or mol.GetNumAtoms() == 0 else mol
+    if mol is None or mol.GetNumAtoms() == 0:
+        return None
+    if any(a.GetAtomicNum() == 0 for a in mol.GetAtoms()):
+        return None
+    return mol
 
 
 def score_terms(smiles: list[str], classify, tox=None,
                 min_heavy_atoms: int = 0, min_mw: float = 0.0,
-                alert_lambda: float = 0.0) -> dict[str, np.ndarray]:
+                alert_lambda: float = 0.0, min_c: float = 0.0
+                ) -> dict[str, np.ndarray]:
     """Per-molecule stationary reward terms. Invalid rows are left at zero.
 
     `tox` is an optional frozen toxicity scorer (src.tox.load_frozen_tox). It
@@ -185,8 +356,28 @@ def score_terms(smiles: list[str], classify, tox=None,
             # toxicity model sees exactly the molecule the other terms did.
             t[idx] = 1.0 - np.asarray(tox([Chem.MolToSmiles(m) for m in mols]))
 
+    # PERMEABILITY AS A GATE RATHER THAN A DIRECTION. Applied after classify()
+    # because, unlike the size gates above, it needs C to exist first.
+    #
+    # Why a gate: `assemble` is a weighted sum, so a monotone C term pays the
+    # policy to climb toward whatever maximizes C -- and what maximizes C is
+    # carbon tetrachloride, which BBBP labels BBB+ correctly because it really
+    # does cross the barrier (limitations 3.1). The same argument already
+    # justified gating size rather than rewarding it: a gate has no gradient to
+    # climb at all. Pair this with `--drop C` so permeability is a REQUIREMENT
+    # and the optimization pressure sits on Q/S/D instead.
+    #
+    # This is nearly free: limitations 1.7 measured mean_C at 0.786 with
+    # w_C = 0, against BBBP's own 0.745 -- the policy's permeability is mostly a
+    # side effect of what the other terms select for, not something it chases.
+    subthreshold = np.zeros(n, dtype=bool)
+    if min_c:
+        below = valid & (c < min_c)
+        subthreshold[below] = True
+        valid[below] = False
+
     return {"valid": valid, "c": c, "qed": qed, "sa": sa, "t": t, "a": a,
-            "undersized": undersized}
+            "undersized": undersized, "subthreshold": subthreshold}
 
 
 def weights_at(
@@ -531,6 +722,38 @@ def _self_check() -> None:
     # exactly this failure: CCl4 is MW 153.8, so a 150 cutoff lets it through
     # while the heavy-atom count catches it at 5. Halogens are heavy, and
     # weight is a poor proxy for the molecular complexity actually wanted.
+    # WHAT THE C GATE DOES NOT DO: reject solvents. Carbon tetrachloride scores
+    # C = 0.987, far above any threshold calibrated on real BBB+ molecules,
+    # because it genuinely is among the most permeable things in BBBP. A gate on
+    # C removes LOW-C molecules; it can never remove the tiny-solvent failure,
+    # and it is the SIZE gate that does that (5 heavy atoms vs min 10).
+    #
+    # Its value is removing the gradient, not filtering: with w_C = 0 the policy
+    # is no longer paid to climb toward maximal C, so it stops being pulled
+    # toward the small-lipophilic corner where solvents live. The assertion
+    # below pins that down so nobody later reads the gate as a solvent filter.
+    solvent, drug = "ClC(Cl)(Cl)Cl", "O=C(CCCN1CCC(O)(c2ccc(Cl)cc2)CC1)c1ccc(F)cc1"
+    # Distinct names: `gated` belongs to the size-gate block above and is read
+    # again by the summary print at the end of this function.
+    c_open = score_terms([solvent, drug], classify)
+    assert c_open["valid"].all(), "both should be valid with no gate"
+    assert c_open["c"][0] > 0.6, f"probe assumes a high-C solvent, got {c_open['c'][0]:.3f}"
+    c_gated = score_terms([solvent, drug], classify, min_c=0.615)
+    assert c_gated["valid"][0] and not c_gated["subthreshold"][0], (
+        "a C gate must NOT remove a high-C solvent -- if this ever fires, the "
+        "threshold has been raised past the real-BBB+ distribution and the gate "
+        "is now rejecting genuine CNS drugs too"
+    )
+    assert c_gated["valid"][1], "haloperidol must survive a gate set at the real-BBB+ p5"
+    # It does remove a genuinely impermeable molecule, which is its actual job.
+    low = score_terms(["NC(=O)c1ccc(N)cc1S(=O)(=O)O"], classify, min_c=0.615)
+    assert low["subthreshold"][0] and not low["valid"][0], low
+    # C itself is still logged for diagnostics even when the row is gated out.
+    assert c_gated["c"][0] == c_open["c"][0]
+    # And a gate of 0 must change nothing at all.
+    assert np.array_equal(score_terms([solvent, drug], classify, min_c=0.0)["valid"],
+                          c_open["valid"])
+
     assert not score_terms(["ClC(Cl)(Cl)Cl"], classify, min_mw=150.0)["undersized"][0]
     assert score_terms(["ClC(Cl)(Cl)Cl"], classify, min_mw=200.0)["undersized"][0]
     assert score_terms(["FC(F)(F)F"], classify, min_mw=150.0)["undersized"][0]
@@ -603,6 +826,10 @@ def _self_check() -> None:
 
     print(f"C(aspirin)={terms['c'][0]:.3f}  QED={terms['qed'][0]:.3f}  "
           f"SA_norm={terms['sa'][0]:.3f}  R={r[0]:.3f}")
+    print(f"C gate at 0.615: solvent C={c_open['c'][0]:.3f} "
+          f"{'GATED OUT' if c_gated['subthreshold'][0] else 'KEPT'}, "
+          f"haloperidol C={c_open['c'][1]:.3f} "
+          f"{'kept' if c_gated['valid'][1] else 'GATED OUT'}")
     print(f"size gate: {int(gated['undersized'].sum())}/3 solvents removed, "
           f"both drugs kept")
     print(f"geometric veto: QED->0 drops reward to {b_gm / g_gm:.1%} of baseline "

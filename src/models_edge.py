@@ -30,6 +30,7 @@ from torch_geometric.nn import GATConv, GINEConv, MessagePassing
 from torch_geometric.nn import global_max_pool, global_mean_pool
 
 from .featurize import EDGE_DIM, NODE_DIM
+from .models import _make_norm
 
 EDGE_MODELS = ["gine", "gat_edge", "sage_edge"]
 
@@ -84,6 +85,8 @@ class EdgeGNNClassifier(nn.Module):
         dropout: float = 0.3,
         heads: int = 4,
         edge_dim: int = EDGE_DIM,
+        norm: str = "graph",
+        virtual_node: bool = False,
     ) -> None:
         super().__init__()
         if conv not in EDGE_MODELS:
@@ -96,7 +99,17 @@ class EdgeGNNClassifier(nn.Module):
                 _make_edge_conv(conv, in_dim if layer == 0 else hidden, hidden,
                                  heads, edge_dim)
             )
-            self.norms.append(nn.BatchNorm1d(hidden))
+            module, needs_batch = _make_norm(norm, hidden)
+            self.norms.append(module)
+        self.norm_needs_batch = needs_batch
+        if virtual_node:
+            # Scoped to the base family (models.py): the virtual-node arm is an
+            # ablation against the four plain operators, and adding it here too
+            # would make that comparison span two families at once.
+            raise NotImplementedError(
+                "virtual_node is implemented in models.py only; this family "
+                "must be reloaded with virtual_node=False"
+            )
         self.dropout = nn.Dropout(dropout)
         self.head = nn.Sequential(
             nn.Linear(2 * hidden, hidden),
@@ -111,7 +124,7 @@ class EdgeGNNClassifier(nn.Module):
         )
         for conv, norm in zip(self.convs, self.norms):
             x = conv(x, edge_index, edge_attr=edge_attr)
-            x = norm(x)
+            x = norm(x, batch) if self.norm_needs_batch else norm(x)
             x = torch.relu(x)
             x = self.dropout(x)
         graph_repr = torch.cat(

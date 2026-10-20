@@ -6,6 +6,10 @@ here is derived from the RDKit molecular graph. No descriptors, no fingerprints.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+
 import torch
 from rdkit import Chem, RDLogger
 from torch_geometric.data import Data
@@ -80,9 +84,19 @@ def bond_features(bond: Chem.rdchem.Bond) -> list[float]:
 
 
 def smiles_to_graph(smiles: str, label: float | None = None) -> Data | None:
-    """Return a PyG `Data`, or None if RDKit cannot parse the SMILES."""
+    """Return a PyG `Data`, or None if RDKit cannot parse the SMILES.
+
+    A molecule carrying a dummy atom is rejected. `[3*]C(C)=O` parses and
+    sanitizes fine, and the atom one-hot has a trailing catch-all bucket, so a
+    BRICS fragment with an open attachment point would otherwise featurize to a
+    perfectly ordinary-looking graph and be scored as if it were a molecule.
+    The fragment-assembly generator must only ever submit capped, terminal
+    molecules; this makes a leak impossible rather than merely discouraged.
+    """
     mol = Chem.MolFromSmiles(smiles)
     if mol is None or mol.GetNumAtoms() == 0:
+        return None
+    if any(a.GetAtomicNum() == 0 for a in mol.GetAtoms()):
         return None
 
     x = torch.tensor([atom_features(a) for a in mol.GetAtoms()], dtype=torch.float)
@@ -117,8 +131,93 @@ def canonical_smiles(smiles: str) -> str | None:
     return None if mol is None else Chem.MolToSmiles(mol)
 
 
+def graphs_from_smiles(smiles: list[str]) -> list[Data | None]:
+    """Canonicalize and featurize a batch. The ONE entry point for generated SMILES.
+
+    There were four: reward.py canonicalized first, train_gan.py featurized the
+    generator's raw output in three places. They agreed only by accident -- the
+    moment the featurizer or the generator's output convention changes, the
+    reward and the discriminator start seeing different molecules and it
+    presents as a training instability rather than as a bug.
+    """
+    return [smiles_to_graph(s) if isinstance(s, str) and s else None for s in smiles]
+
+
+# --- the run contract -------------------------------------------------------
+#
+# A checkpoint here is a bare state_dict, and `build_model`'s default arguments
+# were the only thing that made it loadable -- no caller ever passed `in_dim`.
+# So changing a default silently invalidated 73 committed checkpoints, and the
+# failure surfaced as `size mismatch for convs.0` far from its cause. Worse,
+# `load_dataset` keyed its cache on the dataset name alone, so a featurizer
+# change could return stale graphs and never raise at all.
+#
+# `FEATURE_ID` is derived from the featurizer's own output rather than declared,
+# because a constant someone has to remember to bump is a constant that will be
+# wrong exactly once.
+
+_PROBE = [
+    "CC(=O)Oc1ccccc1C(=O)O",            # aromatic, carbonyl, hydroxyl
+    "C",                                 # the zero-edge path
+    "N[C@@H](C)C(=O)O",                  # a stereocenter
+    "[O-]S(=O)(=O)c1ccccc1Br",           # formal charge, S, halogen
+    "c1ccc2c(c1)ccc1ccccc12",            # fused aromatic, every atom in a ring
+]
+
+
+def _feature_id() -> str:
+    """Content hash of the featurizer's output on a fixed probe set.
+
+    Any change to `atom_features`, `bond_features` or the one-hot buckets moves
+    this automatically. If you add a feature no probe exercises, extend `_PROBE`
+    in the same diff -- otherwise the hash will not move and the guard goes
+    blind to exactly the change it exists to catch.
+    """
+    mols = [Chem.MolFromSmiles(s) for s in _PROBE]
+    payload = repr(
+        [[atom_features(a) for a in m.GetAtoms()] for m in mols]
+        + [[bond_features(b) for b in m.GetBonds()] for m in mols]
+    )
+    return hashlib.sha1(payload.encode()).hexdigest()[:8]
+
+
+FEATURE_ID = _feature_id()
+
+# Architecture keys recorded in metrics.json and replayed when reloading a
+# checkpoint, so the defaults stop being the contract.
+ARCH_KEYS = ("hidden", "num_layers", "dropout", "heads", "norm", "virtual_node")
+
+
+def run_contract(run_dir: Path | str) -> dict:
+    """Verify a run's featurizer matches this code; return its architecture.
+
+    Returns kwargs for `build_model`, so a checkpoint is reloaded under the
+    architecture it was *trained* with rather than under whatever the defaults
+    happen to be today. Raises rather than guessing: a reward computed from a
+    mismatched classifier is not a degraded number, it is a meaningless one.
+    """
+    run_dir = Path(run_dir)
+    meta_path = run_dir / "metrics.json"
+    if not meta_path.exists():
+        raise RuntimeError(
+            f"{run_dir} has no metrics.json, so the featurizer it was trained "
+            f"under cannot be established. Pre-contract checkpoints live in "
+            f"results_v1/ and are not loadable by this code -- retrain."
+        )
+    meta = json.loads(meta_path.read_text())
+    if meta.get("feature_id") != FEATURE_ID:
+        raise RuntimeError(
+            f"{run_dir}: feature_id={meta.get('feature_id')!r} "
+            f"(node_dim={meta.get('node_dim')}), this code is {FEATURE_ID!r} "
+            f"(node_dim={NODE_DIM}). Retrain the classifier, or check out the "
+            f"commit that produced it. Do NOT proceed: the reward would be "
+            f"computed from a model reading different features."
+        )
+    return {k: meta[k] for k in ARCH_KEYS if k in meta}
+
+
 def _smoke_test() -> None:
-    print(f"NODE_DIM={NODE_DIM}  EDGE_DIM={EDGE_DIM}")
+    print(f"NODE_DIM={NODE_DIM}  EDGE_DIM={EDGE_DIM}  FEATURE_ID={FEATURE_ID}")
 
     aspirin = smiles_to_graph("CC(=O)Oc1ccccc1C(=O)O", label=1.0)
     assert aspirin is not None
@@ -138,6 +237,16 @@ def _smoke_test() -> None:
     bad = smiles_to_graph("this-is-not-a-molecule")
     assert bad is None
     print("invalid SMILES -> None")
+
+    # The shared entry point must tolerate everything a generator emits:
+    # invalid strings, empty strings, and None.
+    batch = graphs_from_smiles(["CCO", "not-a-molecule", "", "c1ccccc1"])
+    assert [g is None for g in batch] == [False, True, True, False], batch
+    print("graphs_from_smiles -> invalid/empty collapse to None")
+
+    # FEATURE_ID must be stable across calls, or every guard is a coin flip.
+    assert _feature_id() == FEATURE_ID
+    assert len(FEATURE_ID) == 8
 
     print("\nsmoke test passed")
 

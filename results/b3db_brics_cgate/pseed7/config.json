@@ -1,0 +1,55 @@
+{
+ "feature_id": "c0c3bbb8",
+ "dataset": "b3db",
+ "steps": 250,
+ "group_size": 64,
+ "ppo_epochs": 4,
+ "n_d": 2,
+ "lr_g": 0.0001,
+ "lr_d": 0.0001,
+ "clip_eps": 0.2,
+ "kl_coef": 1.0,
+ "invalid_floor": -2.0,
+ "schedule": "linear",
+ "k_anneal": 100,
+ "max_len": 72,
+ "seed": 7,
+ "c_transform": "raw",
+ "w_tox": 0.0,
+ "min_heavy_atoms": 10,
+ "min_mw": 0.0,
+ "aggregate": "linear",
+ "alert_lambda": 0.0,
+ "w_alert": 0.0,
+ "drop": [
+  "C"
+ ],
+ "warm_start": "results\\generator\\b3db_brics_pretrained.pt",
+ "generator": "brics",
+ "reward_seed": 0,
+ "reward_family": "ensemble",
+ "min_c": 0.476,
+ "ent_coef": 0.0,
+ "threads_requested": 6,
+ "torch_num_threads": 6,
+ "omp_num_threads": null,
+ "mkl_num_threads": null,
+ "reference_stats": {
+  "tpsa": [
+   87.00977450352339,
+   67.68475030978188
+  ],
+  "hba": [
+   5.3007046764894294,
+   3.6691704516469197
+  ],
+  "logp": [
+   2.355938399743756,
+   2.195597938078439
+  ],
+  "mw": [
+   385.45891659192836,
+   170.87647389267102
+  ]
+ }
+}

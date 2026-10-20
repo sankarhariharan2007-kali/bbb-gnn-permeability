@@ -48,7 +48,7 @@ try:
 except ImportError as e:
     raise SystemExit("pip install lightgbm") from e
 
-SEEDS = (0, 1, 2)
+SEEDS = tuple(range(10))
 ROOT = Path(__file__).resolve().parent.parent
 
 
