@@ -1,10 +1,12 @@
-# Paper sources (RECOMB 2027 submission)
+# Paper (RECOMB 2027 submission)
+
+The paper is `recomb2027_main.pdf`; its LaTeX source (`main.tex`) was removed from the repository.
 
 | file | what it is |
 |---|---|
 | `recomb2027_main.pdf` | main paper (title page + 10 pages + references) |
 | `recomb2027_supplement.pdf` | supplementary material (single PDF) |
-| `main.tex`, `supp.tex` | LaTeX sources (`supp.tex` is generated from `supp_template.tex` by `make_supp.py`) |
+| `supp.tex` | LaTeX source of the supplement (`supp.tex` is generated from `supp_template.tex` by `make_supp.py`) |
 | `figs/` | every figure of the paper (PDF, plus `shortlist.png`) |
 | `make_figs.py` | regenerates all figures from `results/` |
 | `make_supp.py` | regenerates the data tables of the supplement from `results/` |
@@ -18,5 +20,5 @@ Rebuild everything from the repository root (needs `matplotlib`, `scipy`, `rdkit
 python paper/make_figs.py
 python paper/make_supp.py
 python paper/scaffold_overlap.py
-cd paper && pdflatex main.tex && pdflatex main.tex && pdflatex supp.tex && pdflatex supp.tex
+cd paper && pdflatex supp.tex && pdflatex supp.tex
 ```
